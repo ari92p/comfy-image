@@ -132,7 +132,21 @@ def download(f, mdir, out=say):
     raise OSError(f"download of {pathlib.Path(f['dest']).name} failed: {last_err}")
 
 
-def ensure_files(ids, mdir, assume_yes=False, accept_licenses=False, interactive=True):
+def show_plan(todo, mdir):
+    """Prints the files that would be downloaded, their size and their licenses."""
+    total = sum(catalog.FILES[i]["size"] for i in todo)
+    say("\nThese model files are missing and can be downloaded (from the authors' Hugging Face pages, checked by SHA-256):")
+    for i in todo:
+        f = catalog.FILES[i]
+        say(f"   {pathlib.Path(f['dest']).name:48} {human(f['size']):>9}   {catalog.LICENSES[f['license']][0]}")
+    say(f"   total {human(total)} into {mdir}")
+    say("\nLicenses of these files (read them, they differ):")
+    for k in sorted({catalog.FILES[i]["license"] for i in todo}):
+        title, terms, link = catalog.LICENSES[k]
+        say(f"   {title}: {terms}\n   {link}")
+
+
+def ensure_files(ids, mdir, assume_yes=False, accept_licenses=False, interactive=True, show=True):
     """Makes sure the catalog files exist in the models folder. Tells you what, how big and under which license; asks before
     downloading. Returns the list of files fetched."""
     todo = missing_of(ids, mdir)
@@ -141,11 +155,8 @@ def ensure_files(ids, mdir, assume_yes=False, accept_licenses=False, interactive
     if OFFLINE:
         die("model files are missing and --offline is set, so nothing is downloaded: " + ", ".join(pathlib.Path(catalog.FILES[i]["dest"]).name for i in todo))
     total = sum(catalog.FILES[i]["size"] for i in todo)
-    say("\nThese model files are missing and can be downloaded (from the authors' Hugging Face pages, checked by SHA-256):")
-    for i in todo:
-        f = catalog.FILES[i]
-        say(f"   {pathlib.Path(f['dest']).name:48} {human(f['size']):>9}   {catalog.LICENSES[f['license']][0]}")
-    say(f"   total {human(total)} into {mdir}")
+    if show:
+        show_plan(todo, mdir)
     probe = mdir
     while not probe.exists() and probe != probe.parent:
         probe = probe.parent
@@ -153,10 +164,6 @@ def ensure_files(ids, mdir, assume_yes=False, accept_licenses=False, interactive
     if free < total * 1.05:
         die(f"not enough disk space: {human(total)} needed, {human(free)} free on {probe}")
     lic = sorted({catalog.FILES[i]["license"] for i in todo})
-    say("\nLicenses of these files (read them, they differ):")
-    for k in lic:
-        title, terms, link = catalog.LICENSES[k]
-        say(f"   {title}: {terms}\n   {link}")
     if not interactive or not sys.stdin.isatty():
         if not assume_yes:
             die("model files are missing. Run with -y to download them (and --accept-licenses to accept the licenses above).")
@@ -269,12 +276,13 @@ def describe_install():
             f"a private Python {catalog.PYTHON} environment in {COMFY_DIR / '.venv'} with {', '.join(catalog.TORCH)} and ComfyUI's requirements (several GB)"]
 
 
-def install_comfyui(assume_yes=False, dry=False, interactive=True):
-    """Clones the pinned ComfyUI and the GGUF node into ./comfyui and builds a private environment. Downloads libraries, no models."""
-    say("\nSetting up the ComfyUI this tool uses (the exact version the workflows were built with), nothing global:")
-    for line in describe_install():
-        say("  - " + line)
-    say("  Model files are not part of this step.")
+def install_comfyui(assume_yes=False, dry=False, interactive=True, show=True):
+    """Downloads the pinned ComfyUI and the GGUF node into ./comfyui and builds a private environment. Downloads libraries, no models."""
+    if show:
+        say("\nSetting up the ComfyUI this tool uses (the exact version the workflows were built with), nothing global:")
+        for line in describe_install():
+            say("  - " + line)
+        say("  Model files are not part of this step.")
     uv = find_uv()
     if not dry:
         if not uv:

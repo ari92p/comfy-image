@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """easy-image: AI images on your own computer: new images, edits, characters, style references and LoRAs.
 
-  easy-image                                   first start: asks a few things and sets everything up; later: guided mode
+  easy-image                                   sets everything up the first time (one question), then guided mode
   easy-image "a fox in the snow"               one command, no questions
   easy-image --edit photo.png "make the jacket red"
   easy-image --character me.png "me as an astronaut on Mars"
@@ -31,7 +31,7 @@ from pipeline import ASPECTS, FILES, TITLES, Engine, Job, Missing   # noqa: E402
 from ui import ask, clean_path, die, human, launcher, rel, say, shell_join, yes   # noqa: E402
 
 OUT = pathlib.Path(os.environ.get("IMAGE_OUT_DIR") or ROOT / "out")
-CONFIG = pathlib.Path(os.environ.get("IMAGE_CONFIG") or ROOT / "config.json")   # your choices, written by the first-start setup
+CONFIG = pathlib.Path(os.environ.get("IMAGE_CONFIG") or ROOT / "config.json")   # only exists if you ran --configure
 CACHE = setup_env.CACHE
 DEFAULT_OLLAMA = os.environ.get("IMAGE_OLLAMA_URL", "http://127.0.0.1:11434")
 ENGINES = ["auto", "krea", "qwen"]
@@ -274,6 +274,10 @@ def headless(a):
 
 # ---------- first-start setup ----------
 
+# What `--setup` and the first start set up when you name nothing: both models and the Krea 2 style reference (35 GB).
+DEFAULT_FAMILIES = ["krea2", "qwen21"]
+DEFAULT_IDS = [i for f in DEFAULT_FAMILIES for i in catalog.FAMILIES[f]] + ["krea2-style"]
+
 CHOICES = [("krea2", "Krea 2", "generates new images; LoRAs and style images"),
            ("qwen21", "Qwen-Image 2.1", "edits images; characters and style references")]
 
@@ -501,7 +505,7 @@ def setup_command(a):
     unknown = [n for n in names if n not in SETUP_NAMES and n != "all"]
     if unknown:
         die(f"unknown: {', '.join(unknown)}. Choose from: {', '.join(list(SETUP_NAMES) + ['all'])}")
-    ids = []
+    ids = list(DEFAULT_IDS) if not names else []   # no name: the whole recommended set
     for n in (list(SETUP_NAMES) if "all" in names else names):
         for t in SETUP_NAMES[n]:
             ids += catalog.FAMILIES.get(t, [t])
@@ -517,12 +521,31 @@ def setup_command(a):
             say(f"   {pathlib.Path(f['dest']).name}  {human(f['size'])}  {f['repo']}@{f['rev'][:8]}")
         say("   (nothing)" if not todo else f"   total {human(sum(catalog.FILES[i]['size'] for i in todo))}")
         return
-    if not setup_env.installed():
-        setup_env.install_comfyui(assume_yes=a.yes)
+    todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
+    need_comfy = not setup_env.installed()
+    if need_comfy or todo:
+        say("\nThis sets up everything in this folder (nothing is installed globally):")
+        if need_comfy:
+            for line in setup_env.describe_install():
+                say("  - " + line)
+        if todo:
+            setup_env.show_plan(todo, mdir)
+        asked = False
+        if not a.yes:   # one question for the whole setup, including the licenses
+            if not sys.stdin.isatty():
+                die("this needs a terminal for the question, or -y (and --accept-licenses) to say yes in advance.")
+            if not yes("\nSet up everything now" + (" and accept these licenses?" if todo else "?"), "n"):
+                die("cancelled")
+            asked = True
+        a.yes = True
+        a.accept_licenses = a.accept_licenses or (asked and bool(todo))
+    if need_comfy:
+        setup_env.install_comfyui(assume_yes=True, show=False)
     else:
         say("ComfyUI is already set up in ./comfyui.")
     if ids:
-        setup_env.ensure_files(ids, mdir, a.yes, a.accept_licenses)
+        setup_env.ensure_files(ids, mdir, a.yes, a.accept_licenses, show=False)
+    say(f"\nReady. Try:  {launcher()} \"a fox in the snow\"")
 
 
 def list_models(a):
@@ -661,9 +684,10 @@ def main():
         else:
             ap.print_help()
             return
-    if not CONFIG.exists() and interactive and not explicit:   # first start
-        cfg = configure(a, first=True)
-        apply_config(a)
+    if not explicit and not setup_env.installed() and interactive and not a.offline:   # first start: set up the recommended setup
+        say("easy-image is not set up yet.")
+        a.setup = []
+        setup_command(a)
     if has_prompt or a.stdin_text is not None or a.edit or a.character or a.style:
         if not 1 <= a.count <= 64:
             die("--count must be between 1 and 64")
@@ -672,10 +696,10 @@ def main():
 
 
 def ensure_families(a, cfg):
-    """The service downloads the models you chose in the first-start setup when it starts (asking nothing, like -y)."""
+    """The service downloads the models of the recommended setup (or the ones you chose with --configure) when it starts (asking nothing, like -y)."""
     if a.comfy or os.environ.get("IMAGE_COMFY_URL"):
         return
-    ids = [i for f in cfg.get("families", []) for i in catalog.FAMILIES.get(f, [])]
+    ids = [i for f in cfg["families"] for i in catalog.FAMILIES.get(f, [])] if "families" in cfg else list(DEFAULT_IDS)
     if ids:
         if not setup_env.installed():
             setup_env.install_comfyui(assume_yes=a.yes, interactive=False)

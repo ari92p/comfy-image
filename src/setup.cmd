@@ -1,11 +1,9 @@
 @echo off
-rem One-time setup for Windows. Needs nothing installed: it fetches uv, uv fetches Python.
-rem Everything goes into .venvs\ in this folder. ComfyUI and the models are set up on the first start (it asks first).
+rem One-time setup for Windows. Needs nothing installed: it fetches uv, uv fetches Python, then easy-image sets up ComfyUI
+rem and the models (it asks one question first). Everything goes into this folder. Safe to run again: it only adds what is missing.
 cd /d "%~dp0.."
-if exist ".venvs\app\.image-ready" (
-  echo #easy-image: Already set up. Start it with: easy-image.cmd
-  goto :end
-)
+set "PY=.venvs\app\Scripts\python.exe"
+if exist ".venvs\app\.image-ready" goto :run
 
 set "UV="
 for /f "delims=" %%i in ('where uv 2^>nul') do if not defined UV set "UV=%%i"
@@ -23,11 +21,13 @@ if not exist "%UV%" (
   goto :end
 )
 
-echo #easy-image: Setting up ^(a minute^)...
+echo #easy-image: Setting up Python ^(a minute^)...
 if exist ".venvs\app" rmdir /s /q ".venvs\app"
 "%UV%" venv --quiet --python 3.13 .venvs\app || goto :end
 echo ok> .venvs\app\.image-ready
-echo #easy-image: Done. Start it with: easy-image.cmd
+
+:run
+"%PY%" src\easy-image.py --setup
 
 :end
 pause

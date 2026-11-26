@@ -11,16 +11,16 @@ src/setup.sh     # once (Windows: double-click src\setup.cmd)
 ./easy-image         # Windows: easy-image.cmd
 ```
 
-The first start asks where ComfyUI should come from, where the model files go and which models you want, sets everything up and
-remembers your answers. From then on `./easy-image` on its own guides you, or give the prompt directly:
+`src/setup.sh` sets everything up in this folder, nothing global: it fetches `uv`, `uv` fetches Python, then it installs ComfyUI and downloads
+the models. It shows what it will do (about 35 GB of model files and a few GB of PyTorch, with the licenses) and asks **one question**. After that:
 
 ```bash
-./easy-image "a fox in the snow"
-echo "a fox in the snow" | ./easy-image
+./easy-image                       # guided: asks what you want and prints the one-line command
+./easy-image "a fox in the snow"   # or give the prompt directly (it also reads stdin)
 ```
 
-The result is written to `out/`. `src/setup.sh` / `src/setup.cmd` need nothing on the computer: they fetch `uv`, `uv` fetches Python, all inside this folder (`.venvs/`).
-You need a graphics card (an NVIDIA card with 16 GB is the tested setup). The first start downloads PyTorch (a few GB) and the models you choose (16 to 19 GB each), once.
+The result is written to `out/`. You need a graphics card (an NVIDIA card with 16 GB is the tested setup). Run `src/setup.sh` again any time:
+it only adds what is missing.
 
 The examples below write `easy-image`: that is `./easy-image` (Windows: `easy-image.cmd`) in this folder. For a command that works from anywhere: `ln -s "$PWD/easy-image" ~/.local/bin/easy-image`.
 
@@ -44,14 +44,15 @@ easy-image --style painting.png "a quiet harbour at night"                # copy
 | `--model FILE`, `--qwen-model FILE`, `--clip FILE`, `--vae FILE` | use other model files; what you leave out is detected |
 | `--aspect 16:9`, `--size 1.5`, `--quality fast\|normal\|high` | shape, resolution, steps |
 | `--seed N`, `--count N` | same seed and settings give the same image; `--count` makes several |
-| `--configure`, `--setup [krea\|qwen\|all]` | choose ComfyUI and models again; set up and download in advance (`--dry-run` shows the plan) |
+| `--setup [krea\|qwen\|krea-style]` | what `src/setup.sh` runs: everything by default, or only the models you name (`--dry-run` shows the plan) |
+| `--configure` | advanced: use a ComfyUI or a models folder you already have, and remember it |
 | `-y`, `--accept-licenses`, `--offline` | say yes in advance; accept the licenses; never download |
 | `--models-dir DIR`, `--comfy URL` | use a models folder or a ComfyUI you already have |
 | `--check`, `--list-models` | which models are ready; which files can be downloaded |
 | `-v` | show everything the setup and ComfyUI print |
 
 More options (`--ref`, `--two-step`, `--fidelity`, `--eyes`, `--keep-running`) are in `--help`.
-Your choices are kept in `config.json`, saved pictures in `characters/` and `styles/` (none of it is part of the repository).
+`--configure` keeps your choice in `config.json`; saved pictures in `characters/` and `styles/` (none of it is part of the repository).
 
 ## Which model does what
 
@@ -72,7 +73,7 @@ easy-image --serve --host 0.0.0.0       # reachable from other computers (no log
 ```
 
 A small HTTP service for other programs: `POST /generate` (JSON in, `image/png` out), saved characters and styles by name, `/health`, `/engines`, `/loras`, `/cancel`.
-The endpoints are listed at the top of [src/server.py](src/server.py). On start it downloads the models you chose in the first-start setup, then answers one job at a time,
+The endpoints are listed at the top of [src/server.py](src/server.py). On start it downloads the models of the setup, then answers one job at a time,
 stops its ComfyUI after 5 minutes without requests to free the graphics card, and cancels and restarts it when a job hangs.
 Options: `--port`, `--models-dir`, `--offline`. `src/start_server.cmd` (Windows) and `src/start_server.sh` (Mac/Linux) start it.
 

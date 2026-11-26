@@ -615,6 +615,29 @@ class CatalogAndDownloads(unittest.TestCase):
         self.assertTrue(calls["files"][1].endswith("mymodels"))
         self.assertEqual(a.models_dir, self.tmp.name + "/mymodels")
 
+    def test_setup_without_names_sets_up_everything_with_one_question(self):
+        import argparse
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("easy_image_cli2", ROOT / "src" / "easy-image.py")
+        image = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image)
+        asked, calls = [], {}
+        a = argparse.Namespace(setup=[], yes=False, accept_licenses=False, comfy=None, models_dir=self.tmp.name + "/m", dry_run=False)
+        with mock.patch.object(image, "yes", lambda *x, **k: asked.append(x) or True), \
+                mock.patch.object(sys.stdin, "isatty", lambda: True), \
+                mock.patch.object(image.setup_env, "installed", lambda: False), \
+                mock.patch.object(image.setup_env, "install_comfyui", lambda **k: calls.setdefault("install", k)), \
+                mock.patch.object(image.setup_env, "ensure_files", lambda ids, mdir, *x, **k: calls.setdefault("files", (list(ids), x, k))):
+            image.setup_command(a)
+        self.assertEqual(len(asked), 1)   # one question for ComfyUI, models and licenses together
+        self.assertTrue(calls["install"]["assume_yes"])
+        ids, args, _ = calls["files"]
+        self.assertEqual(ids, image.DEFAULT_IDS)
+        for must in ("krea2-unet", "qwen21-unet", "krea2-style"):
+            self.assertIn(must, ids)
+        self.assertEqual(args, (True, True))   # yes, licenses accepted by that one answer
+
     def test_missing_files_name_the_catalog_files_that_fix_them(self):
         fake = FakeComfy(drop_files={"krea2_turbo_fp8_scaled.safetensors", "sample_krea2_finetune.safetensors",
                                      "qwen3vl_4b_fp8_scaled.safetensors", "qwen3vl_4b_bf16.safetensors"})
