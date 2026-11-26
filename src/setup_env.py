@@ -30,9 +30,10 @@ MANAGED_PORT = int(os.environ.get("IMAGE_COMFY_PORT", "8199"))   # not 8188, so 
 # ---------- where the models live ----------
 
 def models_dir(arg=None):
-    """./comfyui/models by default; `--models-dir` (or IMAGE_MODELS_DIR) points at a folder you already have."""
+    """~/.cache/easy-image/models by default (outside the repository, so the 35 GB survive deleting it);
+    `--models-dir` (or IMAGE_MODELS_DIR) points at a folder you already have."""
     d = arg or os.environ.get("IMAGE_MODELS_DIR")
-    return pathlib.Path(d).expanduser().resolve() if d else (COMFY_DIR / "models").resolve()
+    return pathlib.Path(d).expanduser().resolve() if d else (pathlib.Path.home() / ".cache" / "easy-image" / "models").resolve()
 
 
 def present(f, mdir):
@@ -51,20 +52,6 @@ def present(f, mdir):
 
 def missing_of(ids, mdir):
     return [i for i in dict.fromkeys(ids) if not present(catalog.FILES[i], mdir)]
-
-
-# ---------- licenses ----------
-
-def _accepted():
-    try:
-        return set(json.loads((CACHE / "licenses-accepted.json").read_text()))
-    except (OSError, ValueError):
-        return set()
-
-
-def _remember(keys):
-    CACHE.mkdir(parents=True, exist_ok=True)
-    (CACHE / "licenses-accepted.json").write_text(json.dumps(sorted(_accepted() | set(keys))))
 
 
 # ---------- downloading ----------
@@ -133,21 +120,17 @@ def download(f, mdir, out=say):
 
 
 def show_plan(todo, mdir):
-    """Prints the files that would be downloaded, their size and their licenses."""
+    """Prints the files that would be downloaded and their size."""
     total = sum(catalog.FILES[i]["size"] for i in todo)
     say("\nThese model files are missing and can be downloaded (from the authors' Hugging Face pages, checked by SHA-256):")
     for i in todo:
         f = catalog.FILES[i]
-        say(f"   {pathlib.Path(f['dest']).name:48} {human(f['size']):>9}   {catalog.LICENSES[f['license']][0]}")
+        say(f"   {pathlib.Path(f['dest']).name:48} {human(f['size']):>9}")
     say(f"   total {human(total)} into {mdir}")
-    say("\nLicenses of these files (read them, they differ):")
-    for k in sorted({catalog.FILES[i]["license"] for i in todo}):
-        title, terms, link = catalog.LICENSES[k]
-        say(f"   {title}: {terms}\n   {link}")
 
 
-def ensure_files(ids, mdir, assume_yes=False, accept_licenses=False, interactive=True, show=True):
-    """Makes sure the catalog files exist in the models folder. Tells you what, how big and under which license; asks before
+def ensure_files(ids, mdir, assume_yes=False, interactive=True, show=True):
+    """Makes sure the catalog files exist in the models folder. Tells you what and how big; asks before
     downloading. Returns the list of files fetched."""
     todo = missing_of(ids, mdir)
     if not todo:
@@ -163,21 +146,11 @@ def ensure_files(ids, mdir, assume_yes=False, accept_licenses=False, interactive
     free = shutil.disk_usage(probe).free
     if free < total * 1.05:
         die(f"not enough disk space: {human(total)} needed, {human(free)} free on {probe}")
-    lic = sorted({catalog.FILES[i]["license"] for i in todo})
     if not interactive or not sys.stdin.isatty():
         if not assume_yes:
-            die("model files are missing. Run with -y to download them (and --accept-licenses to accept the licenses above).")
+            die("model files are missing. Run with -y to download them.")
     elif not assume_yes and not yes("\nDownload them now?"):
         die("cancelled. Without these files this image cannot be made.")
-    if not set(lic) <= _accepted():
-        if accept_licenses:
-            pass
-        elif interactive and sys.stdin.isatty():
-            if not yes("Do you accept these licenses?", "n"):
-                die("cancelled: the licenses were not accepted.")
-        else:
-            die("add --accept-licenses to confirm you accept the licenses above.")
-        _remember(lic)
     got = []
     for n, i in enumerate(todo, 1):
         f = catalog.FILES[i]
@@ -268,6 +241,20 @@ def vram_gb():
         return int(gpu.rsplit(",", 1)[1].strip().split()[0]) / 1024
     except (AttributeError, IndexError, ValueError):
         return None
+
+
+def memory_gb():
+    """The memory the models can use: an NVIDIA card's memory, or on an Apple Silicon Mac the unified memory (RAM). None if unknown."""
+    v = vram_gb()
+    if v:
+        return v
+    if sys.platform == "darwin":
+        try:
+            r = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5)
+            return int(r.stdout.strip()) / 1024 ** 3
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
+    return None
 
 
 def comfy_python():

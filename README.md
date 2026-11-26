@@ -11,9 +11,9 @@ src/setup.sh     # once (Windows: double-click src\setup.cmd)
 ./easy-image         # Windows: easy-image.cmd
 ```
 
-`src/setup.sh` sets everything up in this folder, nothing global: it fetches `uv`, `uv` fetches Python, then it installs ComfyUI and downloads
-the models. It first asks where the model files should go (Enter = in this folder; or a models folder you already have, what is in it is not downloaded again), then
-shows what it will do (about 35 GB of model files and a few GB of PyTorch, with the licenses) and asks **one yes/no**. After that:
+`src/setup.sh` sets everything up in this folder, nothing global: it fetches `uv`, `uv` fetches Python, asks once to install ComfyUI (a few GB of PyTorch) and installs it.
+Then it asks where the models go (Enter = `~/.cache/easy-image/models`, outside this folder; or a models folder you already have, what is in it is not downloaded again)
+and whether to download them (about 35 GB). Say no to get only the environment: run `src/setup.sh` again later, or the first image asks. After that:
 
 ```bash
 ./easy-image                       # guided: asks what you want and prints the one-line command
@@ -45,9 +45,9 @@ easy-image --style painting.png "a quiet harbour at night"                # copy
 | `--model FILE`, `--qwen-model FILE`, `--clip FILE`, `--vae FILE` | use other model files; what you leave out is detected |
 | `--aspect 16:9`, `--size 1.5`, `--quality fast\|normal\|high` | shape, resolution, steps |
 | `--seed N`, `--count N` | same seed and settings give the same image; `--count` makes several |
-| `--setup [krea\|qwen\|krea-style]` | what `src/setup.sh` runs: everything by default, or only the models you name (`--dry-run` shows the plan) |
+| `--setup [env\|krea\|qwen\|krea-style]` | what `src/setup.sh` runs: everything by default, or only what you name (`env` = ComfyUI without models; `--dry-run` shows the plan) |
 | `--configure` | advanced: use a ComfyUI or a models folder you already have, and remember it |
-| `-y`, `--accept-licenses`, `--offline` | say yes in advance; accept the licenses; never download |
+| `-y`, `--offline` | say yes in advance; never download |
 | `--models-dir DIR`, `--comfy URL` | use a models folder or a ComfyUI you already have |
 | `--check`, `--list-models` | which models are ready; which files can be downloaded |
 | `-v` | show everything the setup and ComfyUI print |
@@ -80,16 +80,19 @@ Options: `--port`, `--models-dir`, `--offline`. `src/start_server.cmd` (Windows)
 
 ## Models, downloads and files
 
-Everything stays in the repository folder (`.venvs/`, `comfyui/`, `out/`, `characters/`, `styles/`, none of it goes into git), nothing is installed globally, and nothing is downloaded before you say yes. `comfyui/` holds ComfyUI **v0.41.0**, the
-ComfyUI-GGUF node and a private Python 3.13 environment with PyTorch 2.14; it runs on 127.0.0.1 port 8199 while needed. `comfyui/models/` (or your `--models-dir`) holds the
-model files; a file you already have, under any folder name, is recognised and not downloaded again. Delete `comfyui/` to start over.
+Nothing is installed globally, and nothing is downloaded before you say yes.
+
+- **In the repository folder** (none of it goes into git): `.venvs/`, `comfyui/` (ComfyUI **v0.41.0**, the ComfyUI-GGUF node and a private Python 3.13 with PyTorch 2.14; it
+  runs on 127.0.0.1 port 8199 while needed), `out/`, `characters/`, `styles/`. Delete `comfyui/` to start over.
+- **The model files** (35 GB) are not in the repository folder but in `~/.cache/easy-image/models` (Windows: `C:\Users\<you>\.cache\easy-image\models`), or in the folder you
+  choose with `--models-dir`. A file you already have, under any folder name, is recognised and not downloaded again.
 
 | Model | Files (checked by size and SHA-256, from a pinned revision) | License |
 | --- | --- | --- |
 | Krea 2, 18.6 GB ([Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2)) | `krea2_turbo_fp8_scaled`, `qwen3vl_4b_fp8_scaled`, `qwen_image_vae`; for `--style` also `krea2_style_reference` | [Krea 2 Community License](https://www.krea.ai/krea-2-licensing): permissive use, commercial licensing separate |
 | Qwen-Image 2.1, 16.3 GB ([unsloth GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF), [Comfy-Org](https://huggingface.co/Comfy-Org/Qwen-Image-2.1)) | `qwen-image-2.1-Q6_K.gguf`, `qwen3vl_8b_int8_convrot`, `qwen_image_2.1_vae_bf16` | Qwen Research License: **non-commercial** use of the model |
 
-The tool prints these licenses before it downloads and asks you to accept them. Models and LoRAs you add yourself carry their own license (often "no commercial use");
+Read these licenses before you use the models. Models and LoRAs you add yourself carry their own license (often "no commercial use");
 this tool includes and recommends none. ComfyUI is GPL-3.0, ComfyUI-GGUF Apache-2.0, this repository MIT.
 
 ## Optional: Ollama

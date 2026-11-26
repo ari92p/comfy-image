@@ -112,7 +112,7 @@ class Session:
                 return eng.plan(job)
             except Missing as e:
                 if attempt == 1 and e.ids and not self.external:
-                    setup_env.ensure_files(e.ids, self.mdir, self.a.yes, self.a.accept_licenses)
+                    setup_env.ensure_files(e.ids, self.mdir, self.a.yes)
                     eng.comfy.refresh()
                     continue
                 hint = ("\n  (This ComfyUI is not managed by this tool; put the files there, or leave out --comfy.)" if self.external else "")
@@ -276,7 +276,10 @@ def headless(a):
 
 # What `--setup` and the first start set up when you name nothing: both models and the Krea 2 style reference (35 GB).
 DEFAULT_FAMILIES = ["krea2", "qwen21"]
-DEFAULT_IDS = [i for f in DEFAULT_FAMILIES for i in catalog.FAMILIES[f]] + ["krea2-style"]
+
+
+def default_ids():
+    return [i for f in DEFAULT_FAMILIES for i in catalog.FAMILIES[f] + (["krea2-style"] if f == "krea2" else [])]
 
 CHOICES = [("krea2", "Krea 2", "generates new images; LoRAs and style images"),
            ("qwen21", "Qwen-Image 2.1", "edits images; characters and style references")]
@@ -312,7 +315,7 @@ def configure(a, first):
             setup_env.install_comfyui(assume_yes=a.yes)
         ids = [i for f in families for i in catalog.FAMILIES[f]]
         if ids:
-            setup_env.ensure_files(ids, setup_env.models_dir(mdir or None), a.yes, a.accept_licenses)
+            setup_env.ensure_files(ids, setup_env.models_dir(mdir or None), a.yes)
     say(f"\nSaved. Now try:  {launcher()} \"a fox in the snow\"")
     return cfg
 
@@ -487,7 +490,7 @@ def _guided_rest(a, ap, sess, comfy):
     say(f"\n   {shell_join([launcher()] + argv)}\n")
     # the run below is made from exactly that command, so what you see is what the command does
     a2 = ap.parse_args(argv)
-    a2.yes, a2.accept_licenses, a2.stdin_text = a.yes, a.accept_licenses, None
+    a2.yes, a2.stdin_text = a.yes, None
     job = build_job(a2, eng)
     sess.prepare(eng, job)
     run_job(eng, job, a2.count, a2.out)
@@ -496,16 +499,73 @@ def _guided_rest(a, ap, sess, comfy):
 
 # ---------- setup and listing ----------
 
-SETUP_NAMES = {"krea": ["krea2"], "krea2": ["krea2"], "qwen": ["qwen21"], "qwen21": ["qwen21"], "krea-style": ["krea2-style"]}
+SETUP_NAMES = {"env": [], "krea": ["krea2"], "krea2": ["krea2"], "qwen": ["qwen21"], "qwen21": ["qwen21"], "krea-style": ["krea2-style"]}
+
+
+def go(question):
+    """A question that Enter answers with yes; only n/no says no."""
+    return ask(question + " (Enter = yes, n = no):").lower() not in ("n", "no", "nein")
+
+
+def model_groups():
+    return [("New images, LoRAs, style images (Krea 2)", catalog.FAMILIES["krea2"] + ["krea2-style"]),
+            ("Edit images, characters, references (Qwen-Image 2.1)", catalog.FAMILIES["qwen21"])]
+
+
+def tier_options(mem):
+    """The tiers that fit into `mem` GB (all of them if unknown), biggest first, with the position's title and the recommended one."""
+    keys = [k for k in catalog.TIERS if not mem or mem >= catalog.TIER_MIN_GB.get(k, 0)]
+    titles = {k: "Balanced" for k in keys}
+    titles[keys[0]], titles[keys[-1]] = "Best quality", "Smallest"
+    rec = keys[0] if mem and mem >= 32 else (keys[-1] if mem and mem < 16 else "balanced")
+    return keys, titles, rec
+
+
+def choose_tier(a):
+    """Only the Qwen files that fit this computer's memory are offered; the choice is remembered in config.json."""
+    keys, titles, rec = tier_options(setup_env.memory_gb())
+    say("\nQuality of the Qwen model (Krea 2 has one size):")
+    for n, k in enumerate(keys, 1):
+        f = catalog.FILES[catalog.TIERS[k]]
+        say(f"   {n}. {titles[k]}: {pathlib.Path(f['dest']).name} ({human(f['size'])})" + (" (Recommended)" if k == rec else ""))
+    default = keys.index(rec) + 1
+    s = ask("Choose (Enter = %d):" % default, str(default))
+    tier = keys[int(s) - 1] if s.isdigit() and 1 <= int(s) <= len(keys) else rec
+    cfg = load_config()
+    cfg["tier"] = tier
+    save_config(cfg)
+    catalog.apply_tier(tier)
+    return tier
+
+
+def choose_models(todo, mdir):
+    """Shows the missing files by purpose and lets the user pick; Enter = all. Returns the chosen file ids."""
+    groups = [(title, [i for i in ids if i in todo]) for title, ids in model_groups()]
+    groups = [(title, ids) for title, ids in groups if ids]
+    vram = setup_env.vram_gb()
+    if vram and vram < 15:
+        say(f"\nNote: your graphics card has {vram:.0f} GB. These models were tested with 16 GB; with less, parts move into the "
+            "computer's RAM, which can be slow or run out of memory.")
+    say(f"\nModels to download into {mdir} (checked by SHA-256):")
+    for n, (title, ids) in enumerate(groups, 1):
+        say(f"   {n}. {title}: {human(sum(catalog.FILES[i]['size'] for i in ids))}")
+    say("Enter = all, numbers (e.g. 1 2) = only those, n = none.")
+    s = ask("Download:").lower()
+    if s in ("n", "no", "nein", "none"):
+        return []
+    if not s or s == "all":
+        return [i for _, ids in groups for i in ids]
+    nums = {int(x) for x in s.replace(",", " ").split() if x.isdigit() and 1 <= int(x) <= len(groups)}
+    return [i for n, (_, ids) in enumerate(groups, 1) if n in nums for i in ids]
 
 
 def setup_command(a):
-    """--setup [krea] [qwen] [krea-style] [all]: set up ComfyUI, then download what you name."""
+    """--setup [env] [krea] [qwen] [krea-style] [all]: set up ComfyUI, then download what you name (env = ComfyUI only)."""
     names = [n.lower() for n in a.setup]
     unknown = [n for n in names if n not in SETUP_NAMES and n != "all"]
     if unknown:
         die(f"unknown: {', '.join(unknown)}. Choose from: {', '.join(list(SETUP_NAMES) + ['all'])}")
-    ids = list(DEFAULT_IDS) if not names else []   # no name: the whole recommended set
+    ids = default_ids() if not names else []   # no name: the whole recommended set
     for n in (list(SETUP_NAMES) if "all" in names else names):
         for t in SETUP_NAMES[n]:
             ids += catalog.FAMILIES.get(t, [t])
@@ -521,44 +581,48 @@ def setup_command(a):
             say(f"   {pathlib.Path(f['dest']).name}  {human(f['size'])}  {f['repo']}@{f['rev'][:8]}")
         say("   (nothing)" if not todo else f"   total {human(sum(catalog.FILES[i]['size'] for i in todo))}")
         return
-    todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
-    need_comfy = not setup_env.installed()
-    if (need_comfy or todo) and not a.yes and not a.models_dir and sys.stdin.isatty():
+    # 1. the environment: one confirmation, then it is installed right away
+    if not setup_env.installed():
+        say("\nComfyUI, the engine (in this folder, nothing is installed globally):")
+        for line in setup_env.describe_install():
+            say("  - " + line)
+        if not a.yes:
+            if not sys.stdin.isatty():
+                die("this needs a terminal for the question, or -y to say yes in advance.")
+            if not go("Install it now?"):
+                die("cancelled")
+        setup_env.install_comfyui(assume_yes=True, show=False)
+    else:
+        say("ComfyUI is already set up in ./comfyui.")
+    # 2. the models: folder, which ones, then the Qwen quality (only if Qwen is wanted)
+    ask_now = not a.yes
+    if ids and ask_now and not sys.stdin.isatty():
+        die("the models need a terminal for the question, or -y to say yes in advance.")
+    if ids and ask_now and not a.models_dir:
         say(f"\nModels folder: {mdir}")
         m = ask("Press Enter to use it, or type another folder:")
         if m:
             a.models_dir = clean_path(m)
             mdir = setup_env.models_dir(a.models_dir)
-            todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
             cfg = load_config()
             cfg["models_dir"] = a.models_dir   # remembered for the next start
             save_config(cfg)
-    vram = setup_env.vram_gb()
-    if (need_comfy or todo) and vram and vram < 15:
-        say(f"\nNote: your graphics card has {vram:.0f} GB. These models were tested with 16 GB; with less, parts move into the computer's "
-            "RAM, which can be slow or run out of memory.")
-    if need_comfy or todo:
-        say("\nThis sets up everything in this folder (nothing is installed globally):")
-        if need_comfy:
-            for line in setup_env.describe_install():
-                say("  - " + line)
-        if todo:
-            setup_env.show_plan(todo, mdir)
-        asked = False
-        if not a.yes:   # one question for the whole setup, including the licenses
-            if not sys.stdin.isatty():
-                die("this needs a terminal for the question, or -y (and --accept-licenses) to say yes in advance.")
-            if not yes("\nSet up everything now" + (" and accept these licenses?" if todo else "?"), "n"):
-                die("cancelled")
-            asked = True
-        a.yes = True
-        a.accept_licenses = a.accept_licenses or (asked and bool(todo))
-    if need_comfy:
-        setup_env.install_comfyui(assume_yes=True, show=False)
+    todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
+    if not todo:
+        say(f"\nThe model files are in place ({mdir})." if ids else "")
     else:
-        say("ComfyUI is already set up in ./comfyui.")
-    if ids:
-        setup_env.ensure_files(ids, mdir, a.yes, a.accept_licenses, show=False)
+        chosen = choose_models(todo, mdir) if ask_now else todo
+        if ask_now and any(i.startswith("qwen21") for i in chosen) and not load_config().get("tier") and not getattr(a, "tier", None):
+            choose_tier(a)
+            chosen = [catalog.TIERS[catalog.TIER] if i in catalog.TIERS.values() else i for i in chosen]
+            if catalog.TIERS[catalog.TIER] not in chosen:
+                chosen = [catalog.TIERS[catalog.TIER]] + chosen
+            chosen = setup_env.missing_of(chosen, mdir)
+        if chosen:
+            setup_env.ensure_files(chosen, mdir, True, show=not ask_now)
+        else:
+            say(f"\nNo models downloaded, so no image can be made yet.\nRun {launcher()} --setup to download them, or the first image asks for them.")
+            return
     say(f"\nReady. Try:  {launcher()} \"a fox in the snow\"")
 
 
@@ -589,6 +653,8 @@ def make_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("words", nargs="*", metavar="PROMPT", help="what the image shows, or (with --edit) what to change; or use --prompt, "
                                                               "--prompt-file, or pipe it in")
+    ap.add_argument("--tier", choices=list(catalog.TIERS), help="quality of the Qwen model: max (F16, needs 32 GB), best, balanced (default) or smallest; "
+                    "what the setup downloads and what is preferred when several files are there")
     ap.add_argument("--configure", action="store_true", help="choose ComfyUI, the models folder and the models again")
     ap.add_argument("--prompt", help="what the image shows, or (with --edit) what to change")
     ap.add_argument("--prompt-file", help="read the prompt from a text file")
@@ -619,7 +685,7 @@ def make_parser():
     ap.add_argument("-o", "--out", help="output file (default: out/<prompt>-<time>.png)")
     ap.add_argument("--comfy", help="use a ComfyUI you already run (e.g. http://127.0.0.1:8188, or IMAGE_COMFY_URL) instead of the one this tool "
                                     "sets up and starts in ./comfyui; then you manage its models yourself")
-    ap.add_argument("--models-dir", help="the models folder to use and fill (default ./comfyui/models); point it at a folder you already have "
+    ap.add_argument("--models-dir", help="the models folder to use and fill (default ~/.cache/easy-image/models); point it at a folder you already have "
                                          "to share models (or IMAGE_MODELS_DIR)")
     ap.add_argument("--ollama", default=DEFAULT_OLLAMA, help="address of Ollama for the optional helpers (or IMAGE_OLLAMA_URL)")
     ap.add_argument("--chat-model", help="Ollama model that looks at images (default qwen3-vl:8b, or IMAGE_CHAT_MODEL)")
@@ -630,12 +696,10 @@ def make_parser():
     ap.add_argument("--list-styles", action="store_true", help="show the styles you saved")
     ap.add_argument("--list-models", action="store_true", help="list the model files this tool can download, with sizes and licenses")
     ap.add_argument("--setup", nargs="*", metavar="NAME",
-                    help="set up ComfyUI in ./comfyui, then download the named model files (krea, qwen, krea-style, all); "
+                    help="set up ComfyUI in ./comfyui, then download the named model files (env = ComfyUI only, krea, qwen, krea-style, all); "
                          "asks before downloading")
     ap.add_argument("--dry-run", action="store_true", help="with --setup: only print what would be done")
     ap.add_argument("-y", "--yes", action="store_true", help="answer yes to the questions about setting up and downloading")
-    ap.add_argument("--accept-licenses", action="store_true",
-                    help="confirm that you have read and accept the licenses of the model files that are downloaded")
     ap.add_argument("-v", "--verbose", action="store_true", help="show everything the setup and ComfyUI print")
     ap.add_argument("--offline", action="store_true", help="never download anything (model files must already be there)")
     ap.add_argument("--keep-running", action="store_true", help="leave the ComfyUI this tool started running when it ends (faster next time)")
@@ -661,6 +725,7 @@ def main():
                 say("\n".join(library.names(kind)) or f"No saved {kind}s yet. Save one with: --{kind} FILE --save-{kind} NAME")
         return
     cfg = apply_config(a)
+    catalog.apply_tier(a.tier or cfg.get("tier") or "balanced")
     interactive = sys.stdin.isatty()
     explicit = bool(a.comfy or os.environ.get("IMAGE_COMFY_URL") or a.models_dir)
     ui.banner()
@@ -713,11 +778,11 @@ def ensure_families(a, cfg):
     """The service downloads the models of the recommended setup (or the ones you chose with --configure) when it starts (asking nothing, like -y)."""
     if a.comfy or os.environ.get("IMAGE_COMFY_URL"):
         return
-    ids = [i for f in cfg["families"] for i in catalog.FAMILIES.get(f, [])] if "families" in cfg else list(DEFAULT_IDS)
+    ids = [i for f in cfg["families"] for i in catalog.FAMILIES.get(f, [])] if "families" in cfg else default_ids()
     if ids:
         if not setup_env.installed():
             setup_env.install_comfyui(assume_yes=a.yes, interactive=False)
-        setup_env.ensure_files(ids, setup_env.models_dir(a.models_dir), a.yes, a.accept_licenses, interactive=False)
+        setup_env.ensure_files(ids, setup_env.models_dir(a.models_dir), a.yes, interactive=False)
 
 
 if __name__ == "__main__":

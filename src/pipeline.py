@@ -187,7 +187,7 @@ class Engine:
 
         def key(n):
             low = norm(n).lower().rsplit("/", 1)[-1]
-            return ("uc" in low.replace("_", "-").split("-"), "q6" not in low, low) if family == "qwen21" else (False, False, low)
+            return ("uc" in low.replace("_", "-").split("-"), catalog.TIER_TAGS[catalog.TIER] not in low, low) if family == "qwen21" else (False, False, low)
         return [n for n in dict.fromkeys([f for f in first if f] + sorted(hits, key=key))]
 
     def qwen_files(self):

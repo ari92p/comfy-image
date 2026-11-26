@@ -335,13 +335,45 @@ class CommandLine(unittest.TestCase):
     def test_setup_dry_run_only_prints(self):
         env = {k: v for k, v in self.env.items() if k != "IMAGE_COMFY_URL"}
         env["IMAGE_COMFY_DIR"] = self.tmp.name + "/comfyui"
+        had_comfy = (ROOT / "comfyui").exists()
         r = self.run_cli("--setup", "krea", "--dry-run", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         for expect in ("ComfyUI/archive/98cc0bf84b7c", "373048b8", "uv venv --python 3.13", "uv venv --python 3.13", "torch==2.14.0", "krea2_turbo_fp8_scaled.safetensors"):
             self.assertIn(expect, r.stdout)
         self.assertNotIn("qwen-image-2.1-Q6_K", r.stdout)
         self.assertFalse((pathlib.Path(self.tmp.name) / "comfyui").exists())
-        self.assertFalse((ROOT / "comfyui").exists())
+        self.assertEqual((ROOT / "comfyui").exists(), had_comfy)   # a dry run changes nothing
+
+    def test_quality_tiers_pick_the_matching_qwen_file(self):
+        import catalog as c
+        try:
+            for tier, want in (("max", "qwen21-unet-f16"), ("best", "qwen21-unet-q8"), ("balanced", "qwen21-unet"), ("smallest", "qwen21-unet-q4")):
+                c.apply_tier(tier)
+                self.assertEqual(c.FAMILIES["qwen21"][0], want)
+                self.assertEqual(c.FIXES[("qwen21", "unet")], [want])
+                self.assertIn(c.TIER_TAGS[tier], c.FILES[want]["dest"].lower())
+        finally:
+            c.apply_tier("balanced")
+        self.assertEqual(c.apply_tier("nonsense"), None)
+        self.assertEqual(c.TIER, "balanced")
+
+    def test_tiers_offered_fit_the_memory(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("easy_image_cli_t", ROOT / "src" / "easy-image.py")
+        image = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image)
+        keys, titles, rec = image.tier_options(24.0)
+        self.assertEqual((keys, rec, titles["best"]), (["best", "balanced", "smallest"], "balanced", "Best quality"))
+        keys, titles, rec = image.tier_options(48.0)
+        self.assertEqual((keys[0], rec, titles["max"]), ("max", "max", "Best quality"))
+        self.assertEqual(image.tier_options(8.0)[2], "smallest")
+
+    def test_setup_env_name_means_comfyui_only(self):
+        r = self.run_cli("--setup", "env", "--dry-run", env={**{k: v for k, v in self.env.items() if k != "IMAGE_COMFY_URL"},
+                                                            "IMAGE_COMFY_DIR": self.tmp.name + "/comfyui"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("ComfyUI/archive", r.stdout)
+        self.assertIn("(nothing)", r.stdout)
 
     def test_setup_refuses_an_external_comfyui(self):
         r = self.run_cli("--setup", "--dry-run")
@@ -526,15 +558,13 @@ class CatalogAndDownloads(unittest.TestCase):
         (sub / "model.bin").write_bytes(self.payload)
         self.assertEqual(self.setup_env.missing_of(["test-file"], self.mdir), [])
 
-    def test_downloading_needs_a_yes_and_the_licenses_accepted(self):
+    def test_downloading_needs_a_yes(self):
         with self.assertRaises(SystemExit):   # not interactive, no -y
-            self.setup_env.ensure_files(["test-file"], self.mdir, assume_yes=False, accept_licenses=False, interactive=False)
-        with self.assertRaises(SystemExit):   # -y but licenses not accepted
-            self.setup_env.ensure_files(["test-file"], self.mdir, assume_yes=True, accept_licenses=False, interactive=False)
+            self.setup_env.ensure_files(["test-file"], self.mdir, assume_yes=False, interactive=False)
         self.assertEqual(self.requests, [])   # nothing was fetched
-        got = self.setup_env.ensure_files(["test-file"], self.mdir, assume_yes=True, accept_licenses=True, interactive=False)
+        got = self.setup_env.ensure_files(["test-file"], self.mdir, assume_yes=True, interactive=False)
         self.assertEqual(got, ["test-file"])
-        self.assertEqual(self.setup_env.ensure_files(["test-file"], self.mdir, True, True, False), [])   # already there: nothing to do
+        self.assertEqual(self.setup_env.ensure_files(["test-file"], self.mdir, True, False), [])   # already there: nothing to do
 
     def test_setup_commands_are_quiet_unless_verbose(self):
         import contextlib
@@ -601,7 +631,7 @@ class CatalogAndDownloads(unittest.TestCase):
         cfg_path = pathlib.Path(self.tmp.name) / "config.json"
         answers = iter(["", self.tmp.name + "/mymodels", "1 2"])   # own ComfyUI, a models folder, Krea 2 + Qwen
         calls = {}
-        a = argparse.Namespace(yes=False, accept_licenses=False, comfy=None, models_dir=None)
+        a = argparse.Namespace(yes=False, comfy=None, models_dir=None)
         with mock.patch.object(image, "CONFIG", cfg_path), mock.patch.object(image, "ask", lambda *x, **k: next(answers)), \
                 mock.patch.object(self.setup_env, "installed", lambda: False), \
                 mock.patch.object(self.setup_env, "install_comfyui", lambda **k: calls.setdefault("install", k)), \
@@ -623,20 +653,43 @@ class CatalogAndDownloads(unittest.TestCase):
         image = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image)
         asked, calls = [], {}
-        a = argparse.Namespace(setup=[], yes=False, accept_licenses=False, comfy=None, models_dir=self.tmp.name + "/m", dry_run=False)
-        with mock.patch.object(image, "yes", lambda *x, **k: asked.append(x) or True), \
+        a = argparse.Namespace(setup=[], yes=False, comfy=None, models_dir=self.tmp.name + "/m", dry_run=False)
+        with mock.patch.object(image, "CONFIG", pathlib.Path(self.tmp.name) / "cfg.json"), \
+                mock.patch.object(image, "go", lambda *x, **k: asked.append(x) or True), \
+                mock.patch.object(image, "ask", lambda *x, **k: ""), \
                 mock.patch.object(sys.stdin, "isatty", lambda: True), \
                 mock.patch.object(image.setup_env, "installed", lambda: False), \
                 mock.patch.object(image.setup_env, "install_comfyui", lambda **k: calls.setdefault("install", k)), \
                 mock.patch.object(image.setup_env, "ensure_files", lambda ids, mdir, *x, **k: calls.setdefault("files", (list(ids), x, k))):
             image.setup_command(a)
-        self.assertEqual(len(asked), 1)   # one question for ComfyUI, models and licenses together
+        self.assertEqual(len(asked), 1)   # one question for ComfyUI (then it is installed); the models are picked by Enter
         self.assertTrue(calls["install"]["assume_yes"])
         ids, args, _ = calls["files"]
-        self.assertEqual(ids, image.DEFAULT_IDS)
+        self.assertEqual(ids, image.default_ids())
         for must in ("krea2-unet", "qwen21-unet", "krea2-style"):
             self.assertIn(must, ids)
-        self.assertEqual(args, (True, True))   # yes, licenses accepted by that one answer
+        self.assertEqual(args, (True,))
+
+    def test_setup_can_install_the_environment_without_models(self):
+        import argparse
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("easy_image_cli4", ROOT / "src" / "easy-image.py")
+        image = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image)
+        calls = {}
+        answers = iter([True])   # install ComfyUI: yes; at the model selection the user types n
+        a = argparse.Namespace(setup=[], yes=False, comfy=None, models_dir=self.tmp.name + "/m", dry_run=False)
+        with mock.patch.object(image, "CONFIG", pathlib.Path(self.tmp.name) / "cfg.json"), \
+                mock.patch.object(image, "go", lambda *x, **k: next(answers)), \
+                mock.patch.object(image, "ask", lambda *x, **k: "n"), \
+                mock.patch.object(sys.stdin, "isatty", lambda: True), \
+                mock.patch.object(image.setup_env, "installed", lambda: False), \
+                mock.patch.object(image.setup_env, "install_comfyui", lambda **k: calls.setdefault("install", k)), \
+                mock.patch.object(image.setup_env, "ensure_files", lambda *x, **k: calls.setdefault("files", x)):
+            image.setup_command(a)
+        self.assertIn("install", calls)
+        self.assertNotIn("files", calls)
 
     def test_setup_asks_for_the_models_folder_and_remembers_it(self):
         import argparse
@@ -646,17 +699,20 @@ class CatalogAndDownloads(unittest.TestCase):
         image = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image)
         mine = self.tmp.name + "/my models"
+        replies = iter([mine, "", ""])   # the folder; Enter = download everything; quality: Enter
         calls, cfg_path = {}, pathlib.Path(self.tmp.name) / "config.json"
-        a = argparse.Namespace(setup=[], yes=False, accept_licenses=False, comfy=None, models_dir=None, dry_run=False)
-        with mock.patch.object(image, "ask", lambda *x, **k: mine), mock.patch.object(image, "yes", lambda *x, **k: True), \
+        a = argparse.Namespace(setup=[], yes=False, comfy=None, models_dir=None, dry_run=False)
+        with mock.patch.object(image, "ask", lambda *x, **k: next(replies)), mock.patch.object(image, "go", lambda *x, **k: True), \
                 mock.patch.object(image, "CONFIG", cfg_path), \
                 mock.patch.object(sys.stdin, "isatty", lambda: True), \
                 mock.patch.object(image.setup_env, "installed", lambda: True), \
-                mock.patch.object(image.setup_env, "vram_gb", lambda: 8.0), \
+                mock.patch.object(image.setup_env, "memory_gb", lambda: 8.0), \
                 mock.patch.object(image.setup_env, "ensure_files", lambda ids, mdir, *x, **k: calls.setdefault("mdir", str(mdir))):
             image.setup_command(a)
         self.assertTrue(calls["mdir"].endswith("my models"))
-        self.assertEqual(json.loads(cfg_path.read_text())["models_dir"], mine)
+        saved = json.loads(cfg_path.read_text())
+        self.assertEqual(saved["models_dir"], mine)
+        self.assertEqual(saved["tier"], "smallest")   # the mocked card has 8 GB: Enter takes the smallest tier
         self.assertEqual(self.setup_env.vram_gb.__name__, "vram_gb")
 
     def test_vram_is_read_from_nvidia_smi_text(self):

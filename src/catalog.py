@@ -31,6 +31,12 @@ FILES = {
         dest="loras/krea2/krea2_style_reference.safetensors", size=457111760, sha256="f50df5a9e62e4be8aa926a63dd5bb1a64770c4004f763c1208007ae13daa82b8", license="krea2"),
     "qwen21-unet": dict(repo="unsloth/Qwen-Image-2.1-GGUF", rev="2c31ccd392b367a6637841a143813320a02dff55", path="qwen-image-2.1-Q6_K.gguf",
         dest="diffusion_models/qwen-image-2.1-Q6_K.gguf", size=6271551200, sha256="2ead1ee665e8ebc5fec517d287a167f5c6a7e985acbf3b1b93143437a04616ac", license="qwen"),
+    "qwen21-unet-f16": dict(repo="unsloth/Qwen-Image-2.1-GGUF", rev="2c31ccd392b367a6637841a143813320a02dff55", path="qwen-image-2.1-F16.gguf",
+        dest="diffusion_models/qwen-image-2.1-F16.gguf", size=14230275808, sha256="8aa239e5ddb28d4641942231396d7171da41ad305ea401dd92a7d6410bde798d", license="qwen"),
+    "qwen21-unet-q8": dict(repo="unsloth/Qwen-Image-2.1-GGUF", rev="2c31ccd392b367a6637841a143813320a02dff55", path="qwen-image-2.1-Q8_0.gguf",
+        dest="diffusion_models/qwen-image-2.1-Q8_0.gguf", size=7640860384, sha256="c0ed4b2ffd56cbe9c3df1e4a4098045256484ebe94ba5a7e4338d35ec046baa5", license="qwen"),
+    "qwen21-unet-q4": dict(repo="unsloth/Qwen-Image-2.1-GGUF", rev="2c31ccd392b367a6637841a143813320a02dff55", path="qwen-image-2.1-Q4_K_M.gguf",
+        dest="diffusion_models/qwen-image-2.1-Q4_K_M.gguf", size=4199565024, sha256="631d532e7ca71e8d90a87c71d3699761a812039d22e3370e87498d87754660fe", license="qwen"),
     "qwen21-clip": dict(repo="Comfy-Org/Qwen-Image-2.1", rev="aacf31a6d48e707f352ecba714cee0680da3479b", path="text_encoders/qwen3vl_8b_int8_convrot.safetensors",
         dest="text_encoders/qwen3vl_8b_int8_convrot.safetensors", size=9350798360, sha256="8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f", license="qwen"),
     "qwen21-vae": dict(repo="Comfy-Org/Qwen-Image-2.1", rev="aacf31a6d48e707f352ecba714cee0680da3479b", path="vae/qwen_image_2.1_vae_bf16.safetensors",
@@ -47,3 +53,18 @@ EXTRAS = {"krea2-style": "style images with Krea 2 (--style)"}
 FIXES = {("krea2", "unet"): ["krea2-unet"], ("krea2", "clip"): ["krea2-clip"], ("krea2", "vae"): ["qwen-image-vae"],
          ("qwen21", "unet"): ["qwen21-unet"], ("qwen21", "clip"): ["qwen21-clip"], ("qwen21", "vae"): ["qwen21-vae"]}
 ALIASES = {"krea": "krea2", "krea2": "krea2", "qwen": "qwen21", "qwen21": "qwen21"}
+
+
+# Quality tiers: how compressed the Qwen model file is (Krea 2 has one size). Bigger = better pictures, smaller = needs less memory (speed is not measured).
+TIERS = {"max": "qwen21-unet-f16", "best": "qwen21-unet-q8", "balanced": "qwen21-unet", "smallest": "qwen21-unet-q4"}   # biggest first
+TIER_TAGS = {"max": "f16", "best": "q8_0", "balanced": "q6_k", "smallest": "q4_k_m"}   # in the file name
+TIER_MIN_GB = {"max": 32}   # tiers that need at least this much GPU / unified memory (the Qwen text model needs about 10 GB on top); the rest fit everywhere
+TIER = "balanced"
+
+
+def apply_tier(tier):
+    """Makes `tier` the one whose Qwen file is downloaded and preferred."""
+    global TIER
+    TIER = tier if tier in TIERS else "balanced"
+    FAMILIES["qwen21"] = [TIERS[TIER], "qwen21-clip", "qwen21-vae"]
+    FIXES[("qwen21", "unet")] = [TIERS[TIER]]
