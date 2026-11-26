@@ -335,6 +335,7 @@ class CommandLine(unittest.TestCase):
     def test_setup_dry_run_only_prints(self):
         env = {k: v for k, v in self.env.items() if k != "IMAGE_COMFY_URL"}
         env["IMAGE_COMFY_DIR"] = self.tmp.name + "/comfyui"
+        env["IMAGE_MODELS_DIR"] = self.tmp.name + "/models"   # not the real folder, which may hold the models
         had_comfy = (ROOT / "comfyui").exists()
         r = self.run_cli("--setup", "krea", "--dry-run", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)

@@ -528,9 +528,11 @@ def choose_tier(a):
     for n, k in enumerate(keys, 1):
         f = catalog.FILES[catalog.TIERS[k]]
         say(f"   {n}. {titles[k]}: {pathlib.Path(f['dest']).name} ({human(f['size'])})" + (" (Recommended)" if k == rec else ""))
-    default = keys.index(rec) + 1
+    saved = load_config().get("tier")
+    cur = saved if saved in keys else rec
+    default = keys.index(cur) + 1
     s = ask("Choose (Enter = %d):" % default, str(default))
-    tier = keys[int(s) - 1] if s.isdigit() and 1 <= int(s) <= len(keys) else rec
+    tier = keys[int(s) - 1] if s.isdigit() and 1 <= int(s) <= len(keys) else cur
     cfg = load_config()
     cfg["tier"] = tier
     save_config(cfg)
@@ -538,25 +540,27 @@ def choose_tier(a):
     return tier
 
 
-def choose_models(todo, mdir):
-    """Shows the missing files by purpose and lets the user pick; Enter = all. Returns the chosen file ids."""
-    groups = [(title, [i for i in ids if i in todo]) for title, ids in model_groups()]
-    groups = [(title, ids) for title, ids in groups if ids]
+def choose_models(ids, mdir):
+    """Lists the model groups with their state and lets the user pick; Enter = all. Returns the file ids of the chosen groups."""
+    groups = [(title, [i for i in gids if i in ids]) for title, gids in model_groups()]
+    groups = [(title, gids) for title, gids in groups if gids]
     vram = setup_env.vram_gb()
     if vram and vram < 15:
         say(f"\nNote: your graphics card has {vram:.0f} GB. These models were tested with 16 GB; with less, parts move into the "
             "computer's RAM, which can be slow or run out of memory.")
-    say(f"\nModels to download into {mdir} (checked by SHA-256):")
-    for n, (title, ids) in enumerate(groups, 1):
-        say(f"   {n}. {title}: {human(sum(catalog.FILES[i]['size'] for i in ids))}")
+    say(f"\nModels in {mdir} (checked by SHA-256):")
+    for n, (title, gids) in enumerate(groups, 1):
+        need = setup_env.missing_of(gids, mdir)
+        state = "already there" if not need else f"{human(sum(catalog.FILES[i]['size'] for i in need))} to download"
+        say(f"   {n}. {title}: {human(sum(catalog.FILES[i]['size'] for i in gids))} ({state})")
     say("Enter = all, numbers (e.g. 1 2) = only those, n = none.")
-    s = ask("Download:").lower()
+    s = ask("Set up:").lower()
     if s in ("n", "no", "nein", "none"):
         return []
     if not s or s == "all":
-        return [i for _, ids in groups for i in ids]
+        return [i for _, gids in groups for i in gids]
     nums = {int(x) for x in s.replace(",", " ").split() if x.isdigit() and 1 <= int(x) <= len(groups)}
-    return [i for n, (_, ids) in enumerate(groups, 1) if n in nums for i in ids]
+    return [i for n, (_, gids) in enumerate(groups, 1) if n in nums for i in gids]
 
 
 def setup_command(a):
@@ -607,22 +611,25 @@ def setup_command(a):
             cfg = load_config()
             cfg["models_dir"] = a.models_dir   # remembered for the next start
             save_config(cfg)
-    todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
-    if not todo:
-        say(f"\nThe model files are in place ({mdir})." if ids else "")
-    else:
-        chosen = choose_models(todo, mdir) if ask_now else todo
-        if ask_now and any(i.startswith("qwen21") for i in chosen) and not load_config().get("tier") and not getattr(a, "tier", None):
+    if ask_now and ids:
+        chosen = choose_models(ids, mdir)
+        if any(i.startswith("qwen21") for i in chosen) and not getattr(a, "tier", None):
             choose_tier(a)
             chosen = [catalog.TIERS[catalog.TIER] if i in catalog.TIERS.values() else i for i in chosen]
             if catalog.TIERS[catalog.TIER] not in chosen:
                 chosen = [catalog.TIERS[catalog.TIER]] + chosen
-            chosen = setup_env.missing_of(chosen, mdir)
-        if chosen:
-            setup_env.ensure_files(chosen, mdir, True, show=not ask_now)
-        else:
-            say(f"\nNo models downloaded, so no image can be made yet.\nRun {launcher()} --setup to download them, or the first image asks for them.")
-            return
+    else:
+        chosen = ids
+    todo = [] if setup_env.OFFLINE else setup_env.missing_of(chosen, mdir)
+    if not ids:
+        pass
+    elif not chosen:
+        say("\nNo models chosen. Run the setup again, or the first image asks for them.")
+        return
+    elif not todo:
+        say(f"\nThe model files are in place ({mdir}).")
+    else:
+        setup_env.ensure_files(todo, mdir, True, show=not ask_now)
     say(f"\nReady. Try:  {launcher()} \"a fox in the snow\"")
 
 
