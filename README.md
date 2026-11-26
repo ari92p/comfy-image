@@ -12,7 +12,8 @@ src/setup.sh     # once (Windows: double-click src\setup.cmd)
 ```
 
 `src/setup.sh` sets everything up in this folder, nothing global: it fetches `uv`, `uv` fetches Python, then it installs ComfyUI and downloads
-the models. It shows what it will do (about 35 GB of model files and a few GB of PyTorch, with the licenses) and asks **one question**. After that:
+the models. It first asks where the model files should go (Enter = in this folder; or a models folder you already have, what is in it is not downloaded again), then
+shows what it will do (about 35 GB of model files and a few GB of PyTorch, with the licenses) and asks **one yes/no**. After that:
 
 ```bash
 ./easy-image                       # guided: asks what you want and prints the one-line command

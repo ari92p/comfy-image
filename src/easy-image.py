@@ -523,6 +523,20 @@ def setup_command(a):
         return
     todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
     need_comfy = not setup_env.installed()
+    if (need_comfy or todo) and not a.yes and not a.models_dir and sys.stdin.isatty():
+        m = ask(f"\nFolder for the model files. Enter = {mdir}, or the path of a models folder you already have (used as it is, "
+                "files in it are not downloaded again):")
+        if m:
+            a.models_dir = clean_path(m)
+            mdir = setup_env.models_dir(a.models_dir)
+            todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
+            cfg = load_config()
+            cfg["models_dir"] = a.models_dir   # remembered for the next start
+            save_config(cfg)
+    vram = setup_env.vram_gb()
+    if (need_comfy or todo) and vram and vram < 15:
+        say(f"\nNote: your graphics card has {vram:.0f} GB. These models were tested with 16 GB; with less, parts move into the computer's "
+            "RAM, which can be slow or run out of memory.")
     if need_comfy or todo:
         say("\nThis sets up everything in this folder (nothing is installed globally):")
         if need_comfy:

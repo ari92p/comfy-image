@@ -261,6 +261,15 @@ def nvidia_gpu():
         return None
 
 
+def vram_gb():
+    """Memory of the first NVIDIA card in GB, or None (no NVIDIA card, or nvidia-smi does not say)."""
+    gpu = nvidia_gpu()
+    try:
+        return int(gpu.rsplit(",", 1)[1].strip().split()[0]) / 1024
+    except (AttributeError, IndexError, ValueError):
+        return None
+
+
 def comfy_python():
     return COMFY_DIR / ".venv" / ("Scripts/python.exe" if IS_WIN else "bin/python")
 

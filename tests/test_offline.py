@@ -638,6 +638,34 @@ class CatalogAndDownloads(unittest.TestCase):
             self.assertIn(must, ids)
         self.assertEqual(args, (True, True))   # yes, licenses accepted by that one answer
 
+    def test_setup_asks_for_the_models_folder_and_remembers_it(self):
+        import argparse
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("easy_image_cli3", ROOT / "src" / "easy-image.py")
+        image = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image)
+        mine = self.tmp.name + "/my models"
+        calls, cfg_path = {}, pathlib.Path(self.tmp.name) / "config.json"
+        a = argparse.Namespace(setup=[], yes=False, accept_licenses=False, comfy=None, models_dir=None, dry_run=False)
+        with mock.patch.object(image, "ask", lambda *x, **k: mine), mock.patch.object(image, "yes", lambda *x, **k: True), \
+                mock.patch.object(image, "CONFIG", cfg_path), \
+                mock.patch.object(sys.stdin, "isatty", lambda: True), \
+                mock.patch.object(image.setup_env, "installed", lambda: True), \
+                mock.patch.object(image.setup_env, "vram_gb", lambda: 8.0), \
+                mock.patch.object(image.setup_env, "ensure_files", lambda ids, mdir, *x, **k: calls.setdefault("mdir", str(mdir))):
+            image.setup_command(a)
+        self.assertTrue(calls["mdir"].endswith("my models"))
+        self.assertEqual(json.loads(cfg_path.read_text())["models_dir"], mine)
+        self.assertEqual(self.setup_env.vram_gb.__name__, "vram_gb")
+
+    def test_vram_is_read_from_nvidia_smi_text(self):
+        from unittest import mock
+        with mock.patch.object(self.setup_env, "nvidia_gpu", lambda: "NVIDIA GeForce RTX 5080, 16303 MiB"):
+            self.assertAlmostEqual(self.setup_env.vram_gb(), 15.9, delta=0.1)
+        with mock.patch.object(self.setup_env, "nvidia_gpu", lambda: None):
+            self.assertIsNone(self.setup_env.vram_gb())
+
     def test_missing_files_name_the_catalog_files_that_fix_them(self):
         fake = FakeComfy(drop_files={"krea2_turbo_fp8_scaled.safetensors", "sample_krea2_finetune.safetensors",
                                      "qwen3vl_4b_fp8_scaled.safetensors", "qwen3vl_4b_bf16.safetensors"})
