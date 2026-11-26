@@ -94,12 +94,3 @@ Nothing is installed globally, and nothing is downloaded before you say yes.
 
 Read these licenses before you use the models. Models and LoRAs you add yourself carry their own license (often "no commercial use");
 this tool includes and recommends none. ComfyUI is GPL-3.0, ComfyUI-GGUF Apache-2.0, this repository MIT.
-
-## Optional: Ollama
-
-You can ignore this. [Ollama](https://ollama.com) is a separate program that runs small AI models on your computer; this tool never installs it. If it happens to be installed and
-running, the tool uses it for two small jobs: it looks at your character picture once and writes down the face and hair so the character stays closer to the original, and it
-turns a short edit wish like "mach den Mantel rot" into a clear English instruction. If Ollama is not there, everything works the same, just without those two helpers.
-Switch it off with `--no-ollama`.
-
-Don't make images of real people without their consent, don't pass generated images off as photographs of real events, and respect the licenses above.

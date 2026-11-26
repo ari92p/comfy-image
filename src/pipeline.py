@@ -9,6 +9,7 @@ Modes (chosen from what you give it):
 """
 
 import dataclasses
+import io
 import json
 import random
 import time
@@ -16,7 +17,6 @@ import time
 import catalog
 import graphs
 from comfy import Cancelled, ComfyError, find_name, norm, search_names
-from ollama import to_png
 
 # about one megapixel, multiples of 16
 ASPECTS = {
@@ -94,44 +94,21 @@ def sniff_ext(data):
     return "png"
 
 
-# ---------- character facts (from Ollama's JSON description) ----------
-
-def char_facts(descr):
+def to_png(data):
+    """PNG bytes of any image Pillow can read; without Pillow the bytes are returned as they are."""
     try:
-        d = json.loads(descr)
-        return d if isinstance(d, dict) else {}
-    except (ValueError, TypeError):
-        return {}
-
-
-def char_text(descr):
-    f = char_facts(descr)
-    if not f:
-        return descr or ""
-    # clothing is not part of who the character is: the request decides it, so it never appears in the identity text
-    return "; ".join(f"{k}: {v}" for k, v in f.items() if v and v != "not visible" and k not in ("outfit", "accessories"))
-
-
-def ears_pointed(descr):
-    ears = (char_facts(descr).get("ears") or "").lower()
-    return "pointed" in ears or "elf" in ears
-
-
-def ear_clause(descr, n):
-    """What to say about ears. Only when the description says something about them; without a description we stay silent."""
-    ears = (char_facts(descr).get("ears") or "").lower()
-    if not ears:
-        return ""
-    if ears_pointed(descr):
-        return f"The character keeps the pointed ears shown in <image{n}>."
-    return (f"The character has normal round human ears exactly as in <image{n}>; never give them pointed or elf ears, "
-            f"even if another reference image shows pointed ears.")
+        from PIL import Image
+    except ImportError:
+        return data
+    img = Image.open(io.BytesIO(data))
+    out = io.BytesIO()
+    img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB").save(out, "PNG")
+    return out.getvalue()
 
 
 class Engine:
-    def __init__(self, comfy, ollama=None):
+    def __init__(self, comfy):
         self.comfy = comfy
-        self.ollama = ollama          # None = no helpers
         self.on_progress = None       # callable(step, steps)
 
     def cancel(self):
@@ -311,9 +288,6 @@ class Engine:
                 "background and art style.")
         return self._qwen(text, [self._upload(data)], qfiles, steps, seed=random.randrange(2**32), resolution=0)
 
-    def describe(self, data, role):
-        return self.ollama.describe(data, role) if self.ollama else ""
-
     def plan(self, job):
         """Decides what a job will do and which files it loads, without running anything. Raises Missing (with the catalog files
         that would fix it) when something is not there, so callers can fix that before any image is made."""
@@ -363,32 +337,15 @@ class Engine:
         if mode in ("edit", "qwen") and job.loras:
             status("note: LoRAs only work when Krea 2 draws the image; they are ignored in this mode")
 
-        # Everything that needs Ollama happens first, then its model is unloaded, then ComfyUI renders: a vision model that
-        # stays in VRAM next to Qwen makes it dozens of times slower.
         qwen_path = mode == "edit" or mode == "qwen" or mode.endswith("+qwen")
-        natural, descs, style_desc = text, [], ""
-        if qwen_path:
-            if mode == "edit" and self.ollama:
-                natural = self.ollama.edit_instruction(text)
-            for c in (job.characters[:1] if mode == "edit" else job.characters):
-                if self.ollama:
-                    status("Looking at the character ...")
-                descs.append(self.describe(c, "character"))
-            if mode == "qwen" and job.styles:
-                style_desc = self.describe(job.styles[0], "style")
-        if self.ollama:
-            self.ollama.unload()
-
         if mode == "edit":
-            info["prompt_used"] = natural
+            info["prompt_used"] = text
             status("Qwen edits the image ...")
             names = [self._upload(job.edit)]
-            instruction = f"Edit <image1>: {natural} Make this change clearly visible. Keep everything else unchanged."
-            for c, desc in zip(job.characters[:1], descs):
+            instruction = f"Edit <image1>: {text} Make this change clearly visible. Keep everything else unchanged."
+            for c in job.characters[:1]:
                 names.append(self._upload(c))
-                look = char_text(desc)
-                instruction += (f" The character must keep the exact identity shown in <image2>{' (' + look + ')' if look else ''}; "
-                                f"<image2> is only an identity reference.")
+                instruction += " The character must keep the exact identity shown in <image2>; <image2> is only an identity reference."
             # random seed on purpose: editing with the seed that made the image only copies it
             data = self._qwen(instruction, names, qfiles, STEPS["qwen21"][q], seed=random.randrange(2**32), resolution=0)
             if job.characters and job.eyes == "on":
@@ -405,23 +362,21 @@ class Engine:
         style_img = job.styles[0] if job.styles else None
         if mode.endswith("+qwen"):
             status(f"{TITLES[family]} is rendering the style ...")
-            style_img, style_desc = self._base_render(family, text, job, w, h, seed, q, files, status), ""
+            style_img = self._base_render(family, text, job, w, h, seed, q, files, status)
 
         status("Qwen puts character and style together ...")
         names, parts, n = [], [text], 0
-        for c, desc in zip(job.characters, descs):
+        for c in job.characters:
             n += 1
             names.append(self._upload(c))
-            look = char_text(desc)
             parts.append(f"The character from <image{n}> must keep the exact same identity: face, facial features and "
-                         f"markings, eyes, hair, ears, skin tone and body proportions"
-                         f"{' (' + look + ')' if look else ''}. {ear_clause(desc, n)} <image{n}> only defines who the "
+                         f"markings, eyes, hair, ears, skin tone and body proportions. <image{n}> only defines who the "
                          f"character is: do not copy its background, pose, camera angle or lighting; the scene is new, as described. "
                          f"Clothing follows the description above; only if it says nothing about clothing, keep the outfit of <image{n}>.")
         if style_img:
             n += 1
             names.append(self._upload(style_img))
-            parts.append(f"Render the whole image in the visual style of <image{n}>{' (' + style_desc[:1200] + ')' if style_desc else ''}: "
+            parts.append(f"Render the whole image in the visual style of <image{n}>: "
                          f"its brushwork, rendering, shading, lighting, colour palette and line quality, and nothing else. Take nothing "
                          f"of the person in <image{n}>: not their face, hair, ears, body shape, proportions, bust size, age or clothing. "
                          + ("The character's figure and body proportions stay exactly as in <image1>." if job.characters else ""))
@@ -440,25 +395,14 @@ class Engine:
             # Strong styles (and faces inside style images) pull the face away from the character. A second edit pass
             # re-aligns face, hair and ears with the original while keeping the new style.
             status("Matching the face to the character ...")
-            c, desc = job.characters[0], descs[0]
-            look = f" ({style_desc[:1200]})" if style_desc else ""
+            c = job.characters[0]
             text2 = ("Edit <image1>: give the character the exact face, hair and ears of the person in <image2>: same face "
                      "shape, eyes, eyebrows, nose, mouth, hairstyle, hair length and ear shape. "
-                     f"{ear_clause(desc, 2)} Restore the body shape, figure, proportions and bust size of <image2>. Keep the art style and "
-                     f"rendering of <image1>{look}, and keep its framing, pose, lighting and background. <image2> is only an "
+                     "Restore the body shape, figure, proportions and bust size of <image2>. Keep the art style and "
+                     "rendering of <image1>, and keep its framing, pose, lighting and background. <image2> is only an "
                      "identity reference: do not copy its background, pose, camera angle, lighting, realism or game-graphics look.")
             data = self._qwen(text2, [self._upload(data), self._upload(c)], qfiles, steps, seed=random.randrange(2**32), resolution=0)
             info["fidelity_pass"] = True
-        if job.characters and style_img and char_facts(descs[0]) and not ears_pointed(descs[0]):
-            # Style images often carry elf ears or similar features that leak into the character; a short, narrow edit
-            # pass is the one thing that reliably removes them again (a long identity prompt does not).
-            status("Matching the ears ...")
-            text3 = ("Edit <image1>: replace the character's pointed elf ears, if any, with normal rounded human ears, the same "
-                     "ears as the person in <image2>. Change nothing else: same face, hair, body shape and proportions exactly as they "
-                     "are (nothing added, nothing removed), pose, lighting, background and art style.")
-            data = self._qwen(text3, [self._upload(data), self._upload(job.characters[0])], qfiles, steps,
-                              seed=random.randrange(2**32), resolution=0)
-            info["ears_pass"] = True
         if job.characters and job.eyes == "on":
             status("Refining the eyes ...")
             data, info["eyes_pass"] = self._eyes_pass(data, qfiles, steps), True

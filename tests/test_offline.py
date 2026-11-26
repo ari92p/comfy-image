@@ -21,9 +21,8 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(HERE))
 
-from fake_comfy import FakeComfy, FakeOllama, tiny_png   # noqa: E402
+from fake_comfy import FakeComfy, tiny_png   # noqa: E402
 from comfy import Comfy, find_name, search_names   # noqa: E402
-from ollama import Ollama   # noqa: E402
 from pipeline import Engine, Job, Missing   # noqa: E402
 
 PNG = tiny_png()
@@ -40,7 +39,7 @@ def node(graph, ct):
 class Base(unittest.TestCase):
     def setUp(self):
         self.fake = FakeComfy()
-        self.eng = Engine(Comfy(self.fake.url), None)
+        self.eng = Engine(Comfy(self.fake.url))
         self.say = []
 
     def tearDown(self):
@@ -237,59 +236,11 @@ class Jobs(Base):
         self.assertEqual(self.fake.deleted, [])
 
 
-class WithOllama(unittest.TestCase):
-    def setUp(self):
-        self.fake, self.ollama = FakeComfy(), FakeOllama()
-        self.tmp = tempfile.TemporaryDirectory()
-        self.oll = Ollama(self.ollama.url, cache_dir=self.tmp.name)
-        self.eng = Engine(Comfy(self.fake.url), self.oll)
-        # ComfyUI refuses (400) every render that arrives while Ollama still holds a model in memory
-        self.fake.guard = lambda: [f"Ollama still holds {sorted(self.ollama.loaded)} while ComfyUI renders"] if self.ollama.loaded else []
-
-    def tearDown(self):
-        self.fake.stop()
-        self.ollama.stop()
-        self.tmp.cleanup()
-
-    def test_description_goes_into_the_prompt_and_is_cached(self):
-        self.eng.generate(Job(prompt="in a forest", characters=[PNG]), lambda t: None)
-        p = node(self.fake.graphs[0], "TextEncodeQwenImage21")[0]["inputs"]["prompt"]
-        self.assertIn("hair: short brown hair", p)
-        self.assertNotIn("grey coat", p)   # clothing is not identity
-        self.assertIn("normal round human ears", p)
-        n = len(self.ollama.chats)
-        self.eng.generate(Job(prompt="again", characters=[PNG]), lambda t: None)
-        self.assertEqual(len(self.ollama.chats), n)   # the second run reads the cache
-
-    def test_ears_pass_runs_with_style_when_ears_are_round(self):
-        info = self.eng.generate(Job(prompt="x", characters=[PNG], styles=[PNG]), lambda t: None)[1]
-        self.assertTrue(info["ears_pass"] and info["fidelity_pass"])
-        self.assertEqual(len(self.fake.graphs), 3)
-
-    def test_pointed_ears_skip_the_ears_pass(self):
-        self.ollama.ears = "pointed ears, long"
-        info = self.eng.generate(Job(prompt="x", characters=[PNG], styles=[PNG]), lambda t: None)[1]
-        self.assertNotIn("ears_pass", info)
-
-    def test_ollama_is_unloaded_before_every_render(self):
-        # new character + new style + edit wish: three kinds of Ollama work, none may still be loaded when ComfyUI renders
-        self.eng.generate(Job(prompt="x", characters=[PNG], styles=[PNG]), lambda t: None)
-        self.eng.generate(Job(prompt="fix the sleeve", edit=PNG, characters=[PNG]), lambda t: None)
-        self.eng.generate(Job(prompt="x", characters=[PNG], loras=[("krea2\\krea2_softwatercolor.safetensors", 1.0)]), lambda t: None)
-        self.assertEqual(self.fake.errors, [])
-        self.assertEqual(self.ollama.loaded, set())
-
-    def test_edit_wish_is_translated(self):
-        self.eng.generate(Job(prompt="mach die jacke rot", edit=PNG), lambda t: None)
-        p = node(self.fake.graphs[0], "TextEncodeQwenImage21")[0]["inputs"]["prompt"]
-        self.assertIn("clearly red", p)
-
-
 class CommandLine(unittest.TestCase):
     def setUp(self):
         self.fake = FakeComfy()
         self.tmp = tempfile.TemporaryDirectory()
-        self.env = {**os.environ, "IMAGE_KREA_FORMAT": "fp8", "IMAGE_COMFY_URL": self.fake.url, "IMAGE_OLLAMA_URL": "http://127.0.0.1:9",
+        self.env = {**os.environ, "IMAGE_KREA_FORMAT": "fp8", "IMAGE_COMFY_URL": self.fake.url,
                     "IMAGE_OUT_DIR": self.tmp.name + "/out", "IMAGE_CACHE_DIR": self.tmp.name + "/cache",
                     "IMAGE_CONFIG": self.tmp.name + "/config.json", "IMAGE_LIBRARY_DIR": self.tmp.name + "/library"}
 
@@ -303,14 +254,14 @@ class CommandLine(unittest.TestCase):
 
     def test_headless(self):
         out = pathlib.Path(self.tmp.name) / "fox.png"
-        r = self.run_cli("--prompt", "a fox", "--seed", "3", "-o", str(out), "--no-ollama")
+        r = self.run_cli("--prompt", "a fox", "--seed", "3", "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(out.read_bytes(), PNG)
         self.assertEqual(json.loads(out.with_suffix(".json").read_text())["info"]["seed"], 3)
 
     def test_count_numbers_files_and_seeds(self):
         out = pathlib.Path(self.tmp.name) / "set.png"
-        r = self.run_cli("--prompt", "a fox", "--seed", "10", "--count", "2", "-o", str(out), "--no-ollama")
+        r = self.run_cli("--prompt", "a fox", "--seed", "10", "--count", "2", "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((pathlib.Path(self.tmp.name) / "set-1.png").exists() and (pathlib.Path(self.tmp.name) / "set-2.png").exists())
         self.assertEqual([node(g, "KSampler")[0]["inputs"]["seed"] for g in self.fake.graphs], [10, 11])
@@ -323,12 +274,12 @@ class CommandLine(unittest.TestCase):
 
     def test_unreachable_comfyui_is_explained(self):
         self.env["IMAGE_COMFY_URL"] = "http://127.0.0.1:9"
-        r = self.run_cli("--prompt", "x", "--no-ollama")
+        r = self.run_cli("--prompt", "x")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("not reachable", r.stderr)
 
     def test_missing_image_file(self):
-        r = self.run_cli("--edit", "nope.png", "--prompt", "x", "--no-ollama")
+        r = self.run_cli("--edit", "nope.png", "--prompt", "x")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("image not found", r.stderr)
 
@@ -402,35 +353,35 @@ class CommandLine(unittest.TestCase):
 
     def test_the_prompt_can_be_an_argument_or_piped_in(self):
         out = pathlib.Path(self.tmp.name) / "a.png"
-        r = self.run_cli("a fox in the snow", "--no-ollama", "-o", str(out))
+        r = self.run_cli("a fox in the snow", "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("comfy-image", r.stdout)   # the name is printed on start
         self.assertEqual(node(self.fake.graphs[-1], "CLIPTextEncode")[0]["inputs"]["text"], "a fox in the snow")
-        r = self.run_cli("--no-ollama", "-o", str(out), stdin="a lighthouse at dawn\n")
+        r = self.run_cli("-o", str(out), stdin="a lighthouse at dawn\n")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(node(self.fake.graphs[-1], "CLIPTextEncode")[0]["inputs"]["text"], "a lighthouse at dawn")
-        r = self.run_cli("one prompt", "--prompt", "and another", "--no-ollama")
+        r = self.run_cli("one prompt", "--prompt", "and another")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("prompt once", r.stderr)
 
     def test_save_and_reuse_a_character_and_a_style(self):
         img = pathlib.Path(self.tmp.name) / "me.png"
         img.write_bytes(PNG)
-        r = self.run_cli("--character", str(img), "--save-character", "Me Myself", "--style", str(img), "--save-style", "ink", "walking", "--no-ollama")
+        r = self.run_cli("--character", str(img), "--save-character", "Me Myself", "--style", str(img), "--save-style", "ink", "walking")
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         self.assertIn("Saved character 'me-myself'", r.stdout)
         self.assertEqual(self.run_cli("--list-characters").stdout.strip(), "me-myself")
         self.assertEqual(self.run_cli("--list-styles").stdout.strip(), "ink")
         before = len(self.fake.uploads)
-        r = self.run_cli("--character", "me-myself", "--style", "ink", "on the moon", "--no-ollama")   # no file needed any more
+        r = self.run_cli("--character", "me-myself", "--style", "ink", "on the moon")   # no file needed any more
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         self.assertEqual(len(self.fake.uploads) - before, 2 + 2)   # character + style, then the face pass uploads the image and the character again
-        r = self.run_cli("--character", "nobody", "x", "--no-ollama")
+        r = self.run_cli("--character", "nobody", "x")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("Saved characters: me-myself", r.stderr)
 
     def test_saving_needs_exactly_one_picture(self):
-        r = self.run_cli("--save-character", "x", "hello", "--no-ollama")
+        r = self.run_cli("--save-character", "x", "hello")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("exactly one --character FILE", r.stderr)
 
@@ -444,7 +395,7 @@ class CommandLine(unittest.TestCase):
     def test_a_first_start_without_a_terminal_does_not_ask(self):
         env = {k: v for k, v in self.env.items() if k != "IMAGE_COMFY_URL"}
         env["IMAGE_COMFY_DIR"] = self.tmp.name + "/none"
-        r = self.run_cli("a fox", "--no-ollama", env=env, stdin="")
+        r = self.run_cli("a fox", env=env, stdin="")
         self.assertNotEqual(r.returncode, 0)
         self.assertFalse((pathlib.Path(self.tmp.name) / "config.json").exists())
 
@@ -738,7 +689,7 @@ class CatalogAndDownloads(unittest.TestCase):
         fake = FakeComfy(drop_files={"krea2_turbo_fp8_scaled.safetensors", "sample_krea2_finetune.safetensors",
                                      "qwen3vl_4b_fp8_scaled.safetensors", "qwen3vl_4b_bf16.safetensors"})
         try:
-            eng = Engine(Comfy(fake.url), None)
+            eng = Engine(Comfy(fake.url))
             with self.assertRaises(Missing) as c:
                 eng.plan(Job(prompt="x", engine="krea"))
             self.assertEqual(sorted(c.exception.ids), ["krea2-clip", "krea2-unet"])
@@ -765,20 +716,20 @@ class CatalogAndDownloads(unittest.TestCase):
         import socket
         s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
         env = {**os.environ, "IMAGE_COMFY_DIR": str(comfy_dir), "IMAGE_COMFY_PORT": str(port), "IMAGE_OUT_DIR": self.tmp.name + "/out",
-               "IMAGE_CACHE_DIR": self.tmp.name + "/cache", "IMAGE_OLLAMA_URL": "http://127.0.0.1:9",
+               "IMAGE_CACHE_DIR": self.tmp.name + "/cache",
                "IMAGE_CONFIG": self.tmp.name + "/config.json", "IMAGE_LIBRARY_DIR": self.tmp.name + "/library"}
         env.pop("IMAGE_COMFY_URL", None)
-        r = subprocess.run([sys.executable, str(ROOT / "src" / "comfy-image.py"), "--prompt", "a fox", "--no-ollama", "-o", self.tmp.name + "/fox.png"],
+        r = subprocess.run([sys.executable, str(ROOT / "src" / "comfy-image.py"), "--prompt", "a fox", "-o", self.tmp.name + "/fox.png"],
                            capture_output=True, text=True, env=env, cwd=self.tmp.name, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         self.assertEqual(pathlib.Path(self.tmp.name + "/fox.png").read_bytes(), PNG)
         self.assertFalse(Comfy(f"http://127.0.0.1:{port}").alive(1))   # stopped again when the tool ended
 
     def test_a_missing_install_asks_instead_of_installing(self):
-        env = {**os.environ, "IMAGE_COMFY_DIR": self.tmp.name + "/none", "IMAGE_CACHE_DIR": self.tmp.name + "/cache", "IMAGE_OLLAMA_URL": "http://127.0.0.1:9",
+        env = {**os.environ, "IMAGE_COMFY_DIR": self.tmp.name + "/none", "IMAGE_CACHE_DIR": self.tmp.name + "/cache",
                "IMAGE_CONFIG": self.tmp.name + "/config.json", "IMAGE_LIBRARY_DIR": self.tmp.name + "/library"}
         env.pop("IMAGE_COMFY_URL", None)
-        r = subprocess.run([sys.executable, str(ROOT / "src" / "comfy-image.py"), "--prompt", "x", "--no-ollama"], capture_output=True, text=True,
+        r = subprocess.run([sys.executable, str(ROOT / "src" / "comfy-image.py"), "--prompt", "x"], capture_output=True, text=True,
                            env=env, cwd=self.tmp.name, timeout=60, stdin=subprocess.DEVNULL)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("-y", r.stderr)
@@ -789,7 +740,7 @@ class Service(unittest.TestCase):
     def setUp(self):
         import server
         self.fake = FakeComfy()
-        self.eng = Engine(Comfy(self.fake.url), None)
+        self.eng = Engine(Comfy(self.fake.url))
         s = socket_free_port()
         self.port = s
         self.t = threading.Thread(target=server.serve, args=(self.eng, "127.0.0.1", s, lambda *a: None), daemon=True)
@@ -880,7 +831,7 @@ class ServiceWatch(unittest.TestCase):
         import server
         self.server = server
         self.fake = FakeComfy()
-        self.eng = Engine(Comfy(self.fake.url), None)
+        self.eng = Engine(Comfy(self.fake.url))
         self.managed = self.FakeManaged()
         self.port = socket_free_port()
 

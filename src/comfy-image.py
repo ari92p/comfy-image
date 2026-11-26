@@ -26,14 +26,12 @@ import library   # noqa: E402
 import setup_env   # noqa: E402
 import ui   # noqa: E402
 from comfy import Cancelled, Comfy, ComfyError   # noqa: E402
-from ollama import Ollama   # noqa: E402
 from pipeline import ASPECTS, FILES, TITLES, Engine, Job, Missing   # noqa: E402
 from ui import ask, clean_path, die, human, launcher, rel, say, shell_join, yes   # noqa: E402
 
 OUT = pathlib.Path(os.environ.get("IMAGE_OUT_DIR") or ROOT / "out")
 CONFIG = pathlib.Path(os.environ.get("IMAGE_CONFIG") or ROOT / "config.json")   # only exists if you ran --configure
 CACHE = setup_env.CACHE
-DEFAULT_OLLAMA = os.environ.get("IMAGE_OLLAMA_URL", "http://127.0.0.1:11434")
 ENGINES = ["auto", "krea", "qwen"]
 
 
@@ -118,16 +116,6 @@ class Session:
                 hint = ("\n  (This ComfyUI is not managed by this tool; put the files there, or leave out --comfy.)" if self.external else "")
                 die(str(e) + hint)
 
-
-def make_ollama(a, quiet=False):
-    if a.no_ollama:
-        return None
-    o = Ollama(a.ollama, a.chat_model, CACHE / "describe")
-    if o.up():
-        return o
-    if not quiet and ui.VERBOSE:
-        say(f"(Ollama not found at {a.ollama}: continuing without character/style descriptions and without translating edit wishes)")
-    return None
 
 
 def family_download(fam, mdir):
@@ -264,7 +252,7 @@ def headless(a):
     sess = Session(a)
     try:
         comfy = sess.open(interactive=False)
-        eng = Engine(comfy, make_ollama(a))
+        eng = Engine(comfy)
         job = build_job(a, eng)
         sess.prepare(eng, job)
         run_job(eng, job, a.count, a.out)
@@ -390,13 +378,11 @@ def guided(a, ap):
 
 
 def _guided_rest(a, ap, sess, comfy):
-    ollama = make_ollama(a, quiet=True)
-    eng = Engine(comfy, ollama)
+    eng = Engine(comfy)
     managed = not sess.external
 
     # 2) what is here
     if ui.VERBOSE:
-        say("\nOllama helpers: " + ("on" if ollama else "off"))
         say("Model families and what ComfyUI has for them:")
         res = print_check(eng, sess.mdir if managed else None)
     else:
@@ -483,8 +469,6 @@ def _guided_rest(a, ap, sess, comfy):
         argv += ["--comfy", sess.external]
     if a.models_dir:
         argv += ["--models-dir", a.models_dir]
-    if a.no_ollama:
-        argv += ["--no-ollama"]
 
     say("\nNext time, this one command does everything above without questions:")
     say(f"\n   {shell_join([launcher()] + argv)}\n")
@@ -694,9 +678,6 @@ def make_parser():
                                     "sets up and starts in ./comfyui; then you manage its models yourself")
     ap.add_argument("--models-dir", help="the models folder to use and fill (default ~/.cache/comfy-image/models); point it at a folder you already have "
                                          "to share models (or IMAGE_MODELS_DIR)")
-    ap.add_argument("--ollama", default=DEFAULT_OLLAMA, help="address of Ollama for the optional helpers (or IMAGE_OLLAMA_URL)")
-    ap.add_argument("--chat-model", help="Ollama model that looks at images (default qwen3-vl:8b, or IMAGE_CHAT_MODEL)")
-    ap.add_argument("--no-ollama", action="store_true", help="never use Ollama")
     ap.add_argument("--check", action="store_true", help="show which model families are ready")
     ap.add_argument("--list-loras", action="store_true", help="list the LoRAs ComfyUI has")
     ap.add_argument("--list-characters", action="store_true", help="show the characters you saved")
@@ -751,7 +732,7 @@ def main():
         sess = Session(a)
         try:
             comfy = sess.open(interactive=False)
-            eng = Engine(comfy, None if a.list_loras or a.check else make_ollama(a))
+            eng = Engine(comfy)
             if a.check:
                 say(("ComfyUI at " + sess.external if sess.external else f"managed ComfyUI, models in {sess.mdir}") + "\n")
                 print_check(eng, None if sess.external else sess.mdir)

@@ -4,7 +4,7 @@ Started by `comfy-image --serve`. There is no login: restrict who may reach it w
 The ComfyUI this tool manages is stopped after IMAGE_IDLE_SECONDS (default 300) without a request, which frees the graphics card, and
 started again by the next request; a job that runs longer than IMAGE_HARD_SECONDS (default 1200) is cancelled and ComfyUI restarted.
 
-    GET    /health      {state: idle|busy, text, progress, comfy, ollama}
+    GET    /health      {state: idle|busy, text, progress, comfy}
     GET    /engines     which model families are ready in ComfyUI, with the files they use, or what is missing
     GET    /loras       the LoRA names ComfyUI lists (use these names in /generate)
     GET    /models      the Qwen files ComfyUI lists
@@ -124,7 +124,7 @@ def serve(eng, host, port, log=print, managed=None, idle=None, hard=None):
                 if self.path == "/health":
                     prog = round(STATE["step"] / STATE["steps"], 3) if STATE["steps"] else 0
                     self.reply(200, {"state": "busy" if STATE["busy"] else "idle", "text": STATE["text"], "progress": prog,
-                                     "comfy": eng.comfy.alive(), "ollama": bool(eng.ollama and eng.ollama.up())})
+                                     "comfy": eng.comfy.alive()})
                 elif self.path == "/engines":
                     wake()
                     eng.comfy.refresh()

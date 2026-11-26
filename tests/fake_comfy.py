@@ -1,4 +1,4 @@
-"""A fake ComfyUI (and Ollama) for the offline tests: it answers the endpoints comfy-image uses, checks every graph it receives and
+"""A fake ComfyUI for the offline tests: it answers the endpoints comfy-image uses, checks every graph it receives and
 returns a tiny PNG. It is not ComfyUI: it cannot tell whether an image would look right, only whether the request is well formed.
 
 If you point IMAGE_TEST_OBJECT_INFO at a real `GET /object_info` dump, every graph is also checked against that node
@@ -42,7 +42,7 @@ MINI_NODES = ["UNETLoader", "UnetLoaderGGUF", "CLIPLoader", "VAELoader", "LoraLo
 class FakeComfy:
     def __init__(self, missing_nodes=(), drop_files=(), port=0):
         self.graphs, self.uploads, self.errors, self.deleted = [], [], [], []
-        self.guard = None   # callable -> list of problems, checked on every /prompt (e.g. a model still loaded in Ollama)
+        self.guard = None   # callable -> list of problems, checked on every /prompt 
         self.missing_nodes, self.drop_files = set(missing_nodes), set(drop_files)
         path = os.environ.get("IMAGE_TEST_OBJECT_INFO", "")
         self.info = json.load(open(path)) if path and os.path.exists(path) else None
@@ -162,54 +162,3 @@ class FakeComfy:
                 elif isinstance(t[0], list) and (ct, k) not in LOADER_FIELDS and not isinstance(v, list) and v not in t[0]:
                     errs.append(f"{nid}.{k}: '{v}' is not an allowed value")
         return errs
-
-
-class FakeOllama:
-    """Answers /api/tags, /api/ps, /api/generate and /api/chat. A character description comes back as JSON with round ears."""
-
-    def __init__(self, ears="round human ears"):
-        self.chats, self.ears, self.loaded = [], ears, set()
-        fake = self
-
-        class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def send(self, body):
-                data = json.dumps(body).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self):
-                self.send({"models": [{"name": n} for n in sorted(fake.loaded)]} if self.path == "/api/ps"
-                          else {"models": [{"name": "qwen3-vl:8b"}]})
-
-            def do_POST(self):
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
-                if self.path == "/api/generate":
-                    if body.get("keep_alive") == 0:
-                        fake.loaded.discard(body.get("model"))
-                    return self.send({})
-                fake.loaded.add(body.get("model", "qwen3-vl:8b"))   # answering a chat loads the model, like Ollama does
-                msgs = body["messages"]
-                text = msgs[-1]["content"]
-                fake.chats.append(text[:60])
-                if "identity sheet" in text:
-                    d = {"gender": "woman", "apparent_age": "25-30", "build": "slim", "face": "oval face", "eyes": "green eyes",
-                         "hair": "short brown hair", "ears": fake.ears, "skin": "fair", "marks": "none", "outfit": "grey coat",
-                         "accessories": "none"}
-                    return self.send({"message": {"content": json.dumps(d)}})
-                if "ONLY the visual style" in text:
-                    return self.send({"message": {"content": "A soft watercolour look with muted colours."}})
-                return self.send({"message": {"content": "Make the jacket clearly red, keeping everything else."}})
-
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-    def stop(self):
-        self.httpd.shutdown()
-        self.httpd.server_close()
