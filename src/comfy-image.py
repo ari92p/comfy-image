@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""easy-image: AI images on your own computer: new images, edits, characters, style references and LoRAs.
+"""comfy-image: AI images on your own computer: new images, edits, characters, style references and LoRAs.
 
-  easy-image                                   sets everything up the first time (one question), then guided mode
-  easy-image "a fox in the snow"               one command, no questions
-  easy-image --edit photo.png "make the jacket red"
-  easy-image --character me.png "me as an astronaut on Mars"
+  comfy-image                                   sets everything up the first time (one question), then guided mode
+  comfy-image "a fox in the snow"               one command, no questions
+  comfy-image --edit photo.png "make the jacket red"
+  comfy-image --character me.png "me as an astronaut on Mars"
 
-`easy-image` is ./easy-image (Windows: easy-image.cmd) in the repository folder. Run with --help for all options.
+`comfy-image` is ./comfy-image (Windows: comfy-image.cmd) in the repository folder. Run with --help for all options.
 This file needs nothing but a plain Python 3.9+ (standard library only); src/setup.sh makes one for you.
 """
 import argparse
@@ -289,7 +289,7 @@ def configure(a, first):
     """Asks where ComfyUI comes from, where the models live and which models you want; remembers it in config.json; sets it up."""
     cfg = load_config()
     say("\nInitial configuration" if first else "\nConfiguration")
-    say("\nComfyUI: easy-image sets up and runs its own (recommended).")
+    say("\nComfyUI: comfy-image sets up and runs its own (recommended).")
     s = ask("Press Enter for that, or type the address of your own (e.g. http://HOST:8188):", cfg.get("comfy", ""))
     comfy = "" if not s else (s if "://" in s else "http://" + s)
     mdir, families = "", []
@@ -651,12 +651,12 @@ def list_models(a):
 
 def make_parser():
     ap = argparse.ArgumentParser(
-        prog="easy-image",
+        prog="comfy-image",
         description="AI images on your own computer: new images, edits, characters, styles, LoRAs. It sets up and runs its own ComfyUI. "
                     "No arguments = guided mode.",
-        epilog="Examples:  easy-image --prompt \"a fox in the snow\"\n"
-               "          easy-image --edit photo.png --prompt \"make the jacket red\"\n"
-               "          easy-image --character me.png --prompt \"me as an astronaut\"",
+        epilog="Examples:  comfy-image --prompt \"a fox in the snow\"\n"
+               "          comfy-image --edit photo.png --prompt \"make the jacket red\"\n"
+               "          comfy-image --character me.png --prompt \"me as an astronaut\"",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("words", nargs="*", metavar="PROMPT", help="what the image shows, or (with --edit) what to change; or use --prompt, "
                                                               "--prompt-file, or pipe it in")
@@ -692,7 +692,7 @@ def make_parser():
     ap.add_argument("-o", "--out", help="output file (default: out/<prompt>-<time>.png)")
     ap.add_argument("--comfy", help="use a ComfyUI you already run (e.g. http://127.0.0.1:8188, or IMAGE_COMFY_URL) instead of the one this tool "
                                     "sets up and starts in ./comfyui; then you manage its models yourself")
-    ap.add_argument("--models-dir", help="the models folder to use and fill (default ~/.cache/easy-image/models); point it at a folder you already have "
+    ap.add_argument("--models-dir", help="the models folder to use and fill (default ~/.cache/comfy-image/models); point it at a folder you already have "
                                          "to share models (or IMAGE_MODELS_DIR)")
     ap.add_argument("--ollama", default=DEFAULT_OLLAMA, help="address of Ollama for the optional helpers (or IMAGE_OLLAMA_URL)")
     ap.add_argument("--chat-model", help="Ollama model that looks at images (default qwen3-vl:8b, or IMAGE_CHAT_MODEL)")
@@ -724,7 +724,9 @@ def main():
     setup_env.OFFLINE = a.offline
     a.stdin_text = None
 
+    catalog.apply_platform()
     if a.list_models:
+        catalog.apply_tier(a.tier or load_config().get("tier") or "balanced")
         return list_models(a)
     if a.list_characters or a.list_styles:
         for kind, wanted in (("character", a.list_characters), ("style", a.list_styles)):
@@ -771,7 +773,7 @@ def main():
             ap.print_help()
             return
     if not explicit and not setup_env.installed() and interactive and not a.offline:   # first start: set up the recommended setup
-        say("easy-image is not set up yet.")
+        say("comfy-image is not set up yet.")
         a.setup = []
         setup_command(a)
     if has_prompt or a.stdin_text is not None or a.edit or a.character or a.style:

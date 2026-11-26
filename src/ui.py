@@ -9,7 +9,7 @@ import sys
 
 IS_WIN = os.name == "nt"
 VERBOSE = False   # -v: show everything the setup and ComfyUI print
-NAME = "easy-image"
+NAME = "comfy-image"
 
 
 def banner():
@@ -62,7 +62,7 @@ def shell_join(argv):
 
 def launcher():
     """The short start command of this folder (what the user types)."""
-    return "easy-image.cmd" if IS_WIN else "./easy-image"
+    return "comfy-image.cmd" if IS_WIN else "./comfy-image"
 
 
 def human(n):

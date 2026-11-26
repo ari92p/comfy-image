@@ -30,10 +30,10 @@ MANAGED_PORT = int(os.environ.get("IMAGE_COMFY_PORT", "8199"))   # not 8188, so 
 # ---------- where the models live ----------
 
 def models_dir(arg=None):
-    """~/.cache/easy-image/models by default (outside the repository, so the 35 GB survive deleting it);
+    """~/.cache/comfy-image/models by default (outside the repository, so the 35 GB survive deleting it);
     `--models-dir` (or IMAGE_MODELS_DIR) points at a folder you already have."""
     d = arg or os.environ.get("IMAGE_MODELS_DIR")
-    return pathlib.Path(d).expanduser().resolve() if d else (pathlib.Path.home() / ".cache" / "easy-image" / "models").resolve()
+    return pathlib.Path(d).expanduser().resolve() if d else (pathlib.Path.home() / ".cache" / "comfy-image" / "models").resolve()
 
 
 def present(f, mdir):
@@ -78,7 +78,7 @@ def download(f, mdir, out=say):
             if done > size:
                 part.unlink()
                 done, h = 0, hashlib.sha256()
-        headers = {"User-Agent": "easy-image"}
+        headers = {"User-Agent": "comfy-image"}
         if os.environ.get("HF_TOKEN"):
             headers["Authorization"] = "Bearer " + os.environ["HF_TOKEN"]
         if done:
@@ -211,7 +211,7 @@ def fetch_source(repo, commit, dest, dry=False):
     with tempfile.TemporaryDirectory(dir=dest.parent) as tmp:
         zpath = pathlib.Path(tmp) / "src.zip"
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "easy-image"}), timeout=60) as r, open(zpath, "wb") as fh:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "comfy-image"}), timeout=60) as r, open(zpath, "wb") as fh:
                 shutil.copyfileobj(r, fh)
             with zipfile.ZipFile(zpath) as z:
                 z.extractall(pathlib.Path(tmp) / "x")
@@ -324,7 +324,7 @@ def _extra_paths(mdir):
     CACHE.mkdir(parents=True, exist_ok=True)
     p = CACHE / "extra_model_paths.yaml"
     base = str(mdir).replace("\\", "/")
-    p.write_text("easy_image:\n    base_path: " + base + "\n    diffusion_models: diffusion_models\n    text_encoders: text_encoders\n"
+    p.write_text("comfy_image:\n    base_path: " + base + "\n    diffusion_models: diffusion_models\n    text_encoders: text_encoders\n"
                  "    vae: vae\n    checkpoints: checkpoints\n    loras: loras\n", encoding="utf-8")
     return p
 

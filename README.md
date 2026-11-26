@@ -1,4 +1,4 @@
-# easy-image
+# comfy-image
 
 AI images on your own computer: new images from text, edits of existing images, a character from a reference picture in a new scene,
 a style copied from a picture, and LoRAs. No account, no API key. It brings its own ComfyUI and, after asking, the model files.
@@ -6,34 +6,34 @@ a style copied from a picture, and LoRAs. No account, no API key. It brings its 
 ## Quick start
 
 ```bash
-git clone https://github.com/ari92p/easy-image && cd easy-image
+git clone https://github.com/ari92p/comfy-image && cd comfy-image
 src/setup.sh     # once (Windows: double-click src\setup.cmd)
-./easy-image         # Windows: easy-image.cmd
+./comfy-image         # Windows: comfy-image.cmd
 ```
 
 `src/setup.sh` sets everything up in this folder, nothing global: it fetches `uv`, `uv` fetches Python, asks once to install ComfyUI (a few GB of PyTorch) and installs it.
-Then it asks where the models go (Enter = `~/.cache/easy-image/models`, outside this folder; or a models folder you already have, what is in it is not downloaded again)
+Then it asks where the models go (Enter = `~/.cache/comfy-image/models`, outside this folder; or a models folder you already have, what is in it is not downloaded again)
 and whether to download them (about 35 GB). Say no to get only the environment: run `src/setup.sh` again later, or the first image asks. After that:
 
 ```bash
-./easy-image                       # guided: asks what you want and prints the one-line command
-./easy-image "a fox in the snow"   # or give the prompt directly (it also reads stdin)
+./comfy-image                       # guided: asks what you want and prints the one-line command
+./comfy-image "a fox in the snow"   # or give the prompt directly (it also reads stdin)
 ```
 
 The result is written to `out/`. You need a graphics card (an NVIDIA card with 16 GB is the tested setup). Run `src/setup.sh` again any time:
 it only adds what is missing.
 
-The examples below write `easy-image`: that is `./easy-image` (Windows: `easy-image.cmd`) in this folder. For a command that works from anywhere: `ln -s "$PWD/easy-image" ~/.local/bin/easy-image`.
+The examples below write `comfy-image`: that is `./comfy-image` (Windows: `comfy-image.cmd`) in this folder. For a command that works from anywhere: `ln -s "$PWD/comfy-image" ~/.local/bin/comfy-image`.
 
 ## Run it as command
 
 ```bash
-easy-image "a lighthouse at dawn" --aspect 16:9
-easy-image "a fox in the snow" --lora watercolor:0.7                      # a LoRA from the loras folder
-easy-image --edit photo.png "make the jacket red"                         # change an image
-easy-image --character me.png --save-character me "me as an astronaut"    # keep a person's look, saved as "me"
-easy-image --character me --style painting.png "me reading in a library"  # saved characters work by name
-easy-image --style painting.png "a quiet harbour at night"                # copy a picture's look
+comfy-image "a lighthouse at dawn" --aspect 16:9
+comfy-image "a fox in the snow" --lora watercolor:0.7                      # a LoRA from the loras folder
+comfy-image --edit photo.png "make the jacket red"                         # change an image
+comfy-image --character me.png --save-character me "me as an astronaut"    # keep a person's look, saved as "me"
+comfy-image --character me --style painting.png "me reading in a library"  # saved characters work by name
+comfy-image --style painting.png "a quiet harbour at night"                # copy a picture's look
 ```
 
 | Option | What it does |
@@ -69,8 +69,8 @@ Qwen modes ignore LoRAs and say so. Always give a character's *original* picture
 ## Run it as service
 
 ```bash
-easy-image --serve                      # http://127.0.0.1:8192
-easy-image --serve --host 0.0.0.0       # reachable from other computers (no login, use a firewall)
+comfy-image --serve                      # http://127.0.0.1:8192
+comfy-image --serve --host 0.0.0.0       # reachable from other computers (no login, use a firewall)
 ```
 
 A small HTTP service for other programs: `POST /generate` (JSON in, `image/png` out), saved characters and styles by name, `/health`, `/engines`, `/loras`, `/cancel`.
@@ -84,12 +84,12 @@ Nothing is installed globally, and nothing is downloaded before you say yes.
 
 - **In the repository folder** (none of it goes into git): `.venvs/`, `comfyui/` (ComfyUI **v0.41.0**, the ComfyUI-GGUF node and a private Python 3.13 with PyTorch 2.14; it
   runs on 127.0.0.1 port 8199 while needed), `out/`, `characters/`, `styles/`. Delete `comfyui/` to start over.
-- **The model files** (35 GB) are not in the repository folder but in `~/.cache/easy-image/models` (Windows: `C:\Users\<you>\.cache\easy-image\models`), or in the folder you
+- **The model files** (35 GB) are not in the repository folder but in `~/.cache/comfy-image/models` (Windows: `C:\Users\<you>\.cache\comfy-image\models`), or in the folder you
   choose with `--models-dir`. A file you already have, under any folder name, is recognised and not downloaded again.
 
 | Model | Files (checked by size and SHA-256, from a pinned revision) | License |
 | --- | --- | --- |
-| Krea 2, 18.6 GB ([Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2)) | `krea2_turbo_fp8_scaled`, `qwen3vl_4b_fp8_scaled`, `qwen_image_vae`; for `--style` also `krea2_style_reference` | [Krea 2 Community License](https://www.krea.ai/krea-2-licensing): permissive use, commercial licensing separate |
+| Krea 2, 18.6 GB ([Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2)) | `krea2_turbo_fp8_scaled` (on a Mac: [`krea2_turbo-Q6_K.gguf`](https://huggingface.co/vantagewithai/Krea-2-Turbo-GGUF), 10.6 GB, because Apple GPUs cannot run fp8), `qwen3vl_4b_fp8_scaled`, `qwen_image_vae`; for `--style` also `krea2_style_reference` | [Krea 2 Community License](https://www.krea.ai/krea-2-licensing): permissive use, commercial licensing separate |
 | Qwen-Image 2.1, 16.3 GB ([unsloth GGUF](https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF), [Comfy-Org](https://huggingface.co/Comfy-Org/Qwen-Image-2.1)) | `qwen-image-2.1-Q6_K.gguf`, `qwen3vl_8b_int8_convrot`, `qwen_image_2.1_vae_bf16` | Qwen Research License: **non-commercial** use of the model |
 
 Read these licenses before you use the models. Models and LoRAs you add yourself carry their own license (often "no commercial use");

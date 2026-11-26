@@ -23,6 +23,8 @@ LICENSES = {
 FILES = {
     "krea2-unet": dict(repo="Comfy-Org/Krea-2", rev="588feaf955b08b9ac4723eeb751752ab045dba71", path="diffusion_models/krea2_turbo_fp8_scaled.safetensors",
         dest="diffusion_models/krea2_turbo_fp8_scaled.safetensors", size=13141730784, sha256="eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1", license="krea2"),
+    "krea2-unet-gguf": dict(repo="vantagewithai/Krea-2-Turbo-GGUF", rev="390847e2835c16bdf82303731e3d35b874760d89", path="krea2_turbo-Q6_K.gguf",
+        dest="diffusion_models/krea2_turbo-Q6_K.gguf", size=10583638304, sha256="1320bd2c0e493cf2e68e1f9e145632752b862ad342b737cfc2e438bfe78860f5", license="krea2"),
     "krea2-clip": dict(repo="Comfy-Org/Krea-2", rev="588feaf955b08b9ac4723eeb751752ab045dba71", path="text_encoders/qwen3vl_4b_fp8_scaled.safetensors",
         dest="text_encoders/qwen3vl_4b_fp8_scaled.safetensors", size=5242467968, sha256="54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094", license="krea2"),
     "qwen-image-vae": dict(repo="Comfy-Org/Krea-2", rev="588feaf955b08b9ac4723eeb751752ab045dba71", path="vae/qwen_image_vae.safetensors",
@@ -68,3 +70,18 @@ def apply_tier(tier):
     TIER = tier if tier in TIERS else "balanced"
     FAMILIES["qwen21"] = [TIERS[TIER], "qwen21-clip", "qwen21-vae"]
     FIXES[("qwen21", "unet")] = [TIERS[TIER]]
+
+
+# Apple GPUs (MPS) cannot run the fp8 Krea 2 file ("Undefined type Float8_e4m3fn"), so on a Mac the GGUF version of the same model is used.
+KREA_GGUF = False
+
+
+def apply_platform(platform=None, force=None):
+    """Chooses the Krea 2 model file for this computer: GGUF on macOS, fp8 elsewhere. IMAGE_KREA_FORMAT=gguf|fp8 overrides."""
+    import os, sys
+    global KREA_GGUF
+    fmt = force or os.environ.get("IMAGE_KREA_FORMAT") or ("gguf" if (platform or sys.platform) == "darwin" else "fp8")
+    KREA_GGUF = fmt == "gguf"
+    unet = "krea2-unet-gguf" if KREA_GGUF else "krea2-unet"
+    FAMILIES["krea2"] = [unet, "krea2-clip", "qwen-image-vae"]
+    FIXES[("krea2", "unet")] = [unet]

@@ -1,6 +1,6 @@
-"""Image service: the same pipeline as `easy-image`, behind a small HTTP API (standard library only).
+"""Image service: the same pipeline as `comfy-image`, behind a small HTTP API (standard library only).
 
-Started by `easy-image --serve`. There is no login: restrict who may reach it with a firewall rule. One job at a time.
+Started by `comfy-image --serve`. There is no login: restrict who may reach it with a firewall rule. One job at a time.
 The ComfyUI this tool manages is stopped after IMAGE_IDLE_SECONDS (default 300) without a request, which frees the graphics card, and
 started again by the next request; a job that runs longer than IMAGE_HARD_SECONDS (default 1200) is cancelled and ComfyUI restarted.
 

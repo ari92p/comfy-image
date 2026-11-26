@@ -182,7 +182,10 @@ class Engine:
         """The installed files that look like they belong to this family, best guess first. Never filters what you may pick yourself."""
         installed = self._installed(kind)
         want = FILES.get(family, {}).get({"unet": "unet", "clip": "clip", "vae": "vae"}[kind])
-        first = [find_name(w, installed) for w in ([want] if isinstance(want, str) else (want or []))]
+        wants = [want] if isinstance(want, str) else list(want or [])
+        if family == "krea2" and kind == "unet" and catalog.KREA_GGUF:
+            wants.insert(0, catalog.FILES["krea2-unet-gguf"]["dest"].rsplit("/", 1)[-1])   # Mac: the GGUF file first
+        first = [find_name(w, installed) for w in wants]
         hits = [n for n in installed if self.MATCH[family][kind](norm(n).lower().rsplit("/", 1)[-1])]
 
         def key(n):
@@ -215,7 +218,7 @@ class Engine:
         out["unet"] = choose("unet", model, "model file" if family != "qwen21" else "Qwen-Image 2.1 model file", FOLDER["unet"])
         out["clip"] = choose("clip", clip, "text encoder", FOLDER["clip"])
         out["vae"] = choose("vae", vae, "VAE", FOLDER["vae"])
-        if family == "qwen21" and (out["unet"] or "").endswith(".gguf") and not self.comfy.node("UnetLoaderGGUF"):
+        if (out["unet"] or "").endswith(".gguf") and not self.comfy.node("UnetLoaderGGUF"):
             miss.append("the ComfyUI-GGUF custom node (needed for .gguf models)")
         if family == "krea2":
             out["style_lora"] = find_name(FILES["krea2"]["style_lora"], self.loras())   # optional: only style images need it

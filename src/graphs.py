@@ -56,7 +56,9 @@ def build_krea(prompt, loras=(), style_images=(), width=1024, height=1024, seed=
     look Krea copies; that adds `style_lora` (the style reference LoRA) and the reference encoder."""
     o = {**KREA, **overrides}
     g = {
-        "unet": {"class_type": "UNETLoader", "inputs": {"unet_name": o["unet"], "weight_dtype": "default"}},
+        "unet": ({"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": o["unet"]}}
+                 if o["unet"].endswith(".gguf") else
+                 {"class_type": "UNETLoader", "inputs": {"unet_name": o["unet"], "weight_dtype": "default"}}),
         "clip": {"class_type": "CLIPLoader", "inputs": {"clip_name": o["clip"], "type": "krea2", "device": "default"}},
         "vae": {"class_type": "VAELoader", "inputs": {"vae_name": o["vae"]}},
         "latent": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},

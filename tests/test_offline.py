@@ -289,7 +289,7 @@ class CommandLine(unittest.TestCase):
     def setUp(self):
         self.fake = FakeComfy()
         self.tmp = tempfile.TemporaryDirectory()
-        self.env = {**os.environ, "IMAGE_COMFY_URL": self.fake.url, "IMAGE_OLLAMA_URL": "http://127.0.0.1:9",
+        self.env = {**os.environ, "IMAGE_KREA_FORMAT": "fp8", "IMAGE_COMFY_URL": self.fake.url, "IMAGE_OLLAMA_URL": "http://127.0.0.1:9",
                     "IMAGE_OUT_DIR": self.tmp.name + "/out", "IMAGE_CACHE_DIR": self.tmp.name + "/cache",
                     "IMAGE_CONFIG": self.tmp.name + "/config.json", "IMAGE_LIBRARY_DIR": self.tmp.name + "/library"}
 
@@ -298,7 +298,7 @@ class CommandLine(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_cli(self, *args, stdin=None, env=None):
-        return subprocess.run([sys.executable, str(ROOT / "src" / "easy-image.py"), *args], capture_output=True, text=True, input=stdin,
+        return subprocess.run([sys.executable, str(ROOT / "src" / "comfy-image.py"), *args], capture_output=True, text=True, input=stdin,
                               env=env or self.env, cwd=self.tmp.name, timeout=120)
 
     def test_headless(self):
@@ -358,9 +358,20 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(c.apply_tier("nonsense"), None)
         self.assertEqual(c.TIER, "balanced")
 
+    def test_krea_uses_the_gguf_file_on_a_mac_and_fp8_elsewhere(self):
+        import catalog as c
+        try:
+            c.apply_platform(force="gguf")
+            self.assertEqual(c.FAMILIES["krea2"][0], "krea2-unet-gguf")
+            self.assertEqual(c.FIXES[("krea2", "unet")], ["krea2-unet-gguf"])
+            c.apply_platform("linux", force="fp8")
+            self.assertEqual(c.FAMILIES["krea2"][0], "krea2-unet")
+        finally:
+            c.apply_platform(force="fp8")
+
     def test_tiers_offered_fit_the_memory(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location("easy_image_cli_t", ROOT / "src" / "easy-image.py")
+        spec = importlib.util.spec_from_file_location("comfy_image_cli_t", ROOT / "src" / "comfy-image.py")
         image = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image)
         keys, titles, rec = image.tier_options(24.0)
@@ -393,7 +404,7 @@ class CommandLine(unittest.TestCase):
         out = pathlib.Path(self.tmp.name) / "a.png"
         r = self.run_cli("a fox in the snow", "--no-ollama", "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("easy-image", r.stdout)   # the name is printed on start
+        self.assertIn("comfy-image", r.stdout)   # the name is printed on start
         self.assertEqual(node(self.fake.graphs[-1], "CLIPTextEncode")[0]["inputs"]["text"], "a fox in the snow")
         r = self.run_cli("--no-ollama", "-o", str(out), stdin="a lighthouse at dawn\n")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -626,7 +637,7 @@ class CatalogAndDownloads(unittest.TestCase):
         import argparse
         from unittest import mock
         import importlib.util
-        spec = importlib.util.spec_from_file_location("easy_image_cli", ROOT / "src" / "easy-image.py")
+        spec = importlib.util.spec_from_file_location("comfy_image_cli", ROOT / "src" / "comfy-image.py")
         image = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image)
         cfg_path = pathlib.Path(self.tmp.name) / "config.json"
@@ -650,7 +661,7 @@ class CatalogAndDownloads(unittest.TestCase):
         import argparse
         import importlib.util
         from unittest import mock
-        spec = importlib.util.spec_from_file_location("easy_image_cli2", ROOT / "src" / "easy-image.py")
+        spec = importlib.util.spec_from_file_location("comfy_image_cli2", ROOT / "src" / "comfy-image.py")
         image = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image)
         asked, calls = [], {}
@@ -675,7 +686,7 @@ class CatalogAndDownloads(unittest.TestCase):
         import argparse
         import importlib.util
         from unittest import mock
-        spec = importlib.util.spec_from_file_location("easy_image_cli4", ROOT / "src" / "easy-image.py")
+        spec = importlib.util.spec_from_file_location("comfy_image_cli4", ROOT / "src" / "comfy-image.py")
         image = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image)
         calls = {}
@@ -696,7 +707,7 @@ class CatalogAndDownloads(unittest.TestCase):
         import argparse
         import importlib.util
         from unittest import mock
-        spec = importlib.util.spec_from_file_location("easy_image_cli3", ROOT / "src" / "easy-image.py")
+        spec = importlib.util.spec_from_file_location("comfy_image_cli3", ROOT / "src" / "comfy-image.py")
         image = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(image)
         mine = self.tmp.name + "/my models"
@@ -757,7 +768,7 @@ class CatalogAndDownloads(unittest.TestCase):
                "IMAGE_CACHE_DIR": self.tmp.name + "/cache", "IMAGE_OLLAMA_URL": "http://127.0.0.1:9",
                "IMAGE_CONFIG": self.tmp.name + "/config.json", "IMAGE_LIBRARY_DIR": self.tmp.name + "/library"}
         env.pop("IMAGE_COMFY_URL", None)
-        r = subprocess.run([sys.executable, str(ROOT / "src" / "easy-image.py"), "--prompt", "a fox", "--no-ollama", "-o", self.tmp.name + "/fox.png"],
+        r = subprocess.run([sys.executable, str(ROOT / "src" / "comfy-image.py"), "--prompt", "a fox", "--no-ollama", "-o", self.tmp.name + "/fox.png"],
                            capture_output=True, text=True, env=env, cwd=self.tmp.name, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         self.assertEqual(pathlib.Path(self.tmp.name + "/fox.png").read_bytes(), PNG)
@@ -767,7 +778,7 @@ class CatalogAndDownloads(unittest.TestCase):
         env = {**os.environ, "IMAGE_COMFY_DIR": self.tmp.name + "/none", "IMAGE_CACHE_DIR": self.tmp.name + "/cache", "IMAGE_OLLAMA_URL": "http://127.0.0.1:9",
                "IMAGE_CONFIG": self.tmp.name + "/config.json", "IMAGE_LIBRARY_DIR": self.tmp.name + "/library"}
         env.pop("IMAGE_COMFY_URL", None)
-        r = subprocess.run([sys.executable, str(ROOT / "src" / "easy-image.py"), "--prompt", "x", "--no-ollama"], capture_output=True, text=True,
+        r = subprocess.run([sys.executable, str(ROOT / "src" / "comfy-image.py"), "--prompt", "x", "--no-ollama"], capture_output=True, text=True,
                            env=env, cwd=self.tmp.name, timeout=60, stdin=subprocess.DEVNULL)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("-y", r.stderr)

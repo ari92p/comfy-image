@@ -1,4 +1,4 @@
-"""A fake ComfyUI (and Ollama) for the offline tests: it answers the endpoints easy-image uses, checks every graph it receives and
+"""A fake ComfyUI (and Ollama) for the offline tests: it answers the endpoints comfy-image uses, checks every graph it receives and
 returns a tiny PNG. It is not ComfyUI: it cannot tell whether an image would look right, only whether the request is well formed.
 
 If you point IMAGE_TEST_OBJECT_INFO at a real `GET /object_info` dump, every graph is also checked against that node

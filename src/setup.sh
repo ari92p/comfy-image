@@ -1,8 +1,8 @@
 #!/bin/sh
-# One-time setup for Mac and Linux. Needs nothing installed: it fetches uv, uv fetches Python, then easy-image sets up ComfyUI
+# One-time setup for Mac and Linux. Needs nothing installed: it fetches uv, uv fetches Python, then comfy-image sets up ComfyUI
 # and the models (it asks one question first). Everything goes into this folder. Safe to run again: it only adds what is missing.
 cd "$(dirname "$0")/.." || exit 1
-say() { echo "#easy-image: $*"; }
+say() { echo "#comfy-image: $*"; }
 PY=.venvs/app/bin/python
 
 if [ ! -f .venvs/app/.image-ready ]; then
@@ -21,4 +21,4 @@ if [ ! -f .venvs/app/.image-ready ]; then
   touch .venvs/app/.image-ready
 fi
 
-exec "$PY" src/easy-image.py --setup
+exec "$PY" src/comfy-image.py --setup
