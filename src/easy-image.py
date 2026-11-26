@@ -286,14 +286,14 @@ def configure(a, first):
     """Asks where ComfyUI comes from, where the models live and which models you want; remembers it in config.json; sets it up."""
     cfg = load_config()
     say("\nInitial configuration" if first else "\nConfiguration")
-    s = ask("ComfyUI: press Enter and this tool sets up and runs its own (recommended), or type the address of one you already run "
-            "(e.g. http://HOST:8188):", cfg.get("comfy", ""))
+    say("\nComfyUI: easy-image sets up and runs its own (recommended).")
+    s = ask("Press Enter for that, or type the address of your own (e.g. http://HOST:8188):", cfg.get("comfy", ""))
     comfy = "" if not s else (s if "://" in s else "http://" + s)
     mdir, families = "", []
     if not comfy:
         default = str(setup_env.models_dir(None))
-        m = ask(f"Folder for the model files. Enter = {default}, or the path of a models folder you already have (it is used as it is):",
-                cfg.get("models_dir", ""))
+        say(f"\nModels folder (default: {default})")
+        m = ask("Press Enter to use it, or type another folder:", cfg.get("models_dir", ""))
         mdir = clean_path(m) if m else ""
         md = setup_env.models_dir(mdir or None)
         say("\nWhich models do you want? Nothing is downloaded before you confirm; you can add more later.")
@@ -437,7 +437,7 @@ def _guided_rest(a, ap, sess, comfy):
     family = None
     if kind == 0 or (kind == 3 and not chars):
         family = "krea2"
-    elif kind == 2 and yes("\nPaint the character in a LoRA style or another look? (Krea 2 renders the look first, Qwen adds the character)", "n"):
+    elif kind == 2 and yes("\nGive the character a LoRA style or another look?", "n"):
         family = "krea2"
 
     def choose_file(fam, flag, title):
@@ -524,8 +524,8 @@ def setup_command(a):
     todo = [] if setup_env.OFFLINE else setup_env.missing_of(ids, mdir)
     need_comfy = not setup_env.installed()
     if (need_comfy or todo) and not a.yes and not a.models_dir and sys.stdin.isatty():
-        m = ask(f"\nFolder for the model files. Enter = {mdir}, or the path of a models folder you already have (used as it is, "
-                "files in it are not downloaded again):")
+        say(f"\nModels folder: {mdir}")
+        m = ask("Press Enter to use it, or type another folder:")
         if m:
             a.models_dir = clean_path(m)
             mdir = setup_env.models_dir(a.models_dir)
